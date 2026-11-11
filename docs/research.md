@@ -211,3 +211,16 @@ Status: HDR / more than 550 nits is **not solved**.
 confirms 550.000 nits (iDAC 65404) against 503.835 at the driver's maximum,
 and holds it. This is the full range of the SDR backlight.
 
+### 2026-11-12, fourth session: the backlight does go past 550
+
+Ladder repeated with 5 s per step: 504, 550, 640, 1024, 1600 nits requested.
+By eye every step, or at least three of the four, was brighter than the one
+before, and the top looked like the panel's full range. The iDAC code in the
+`mNits` event stays at 65405 from 550 up and the firmware logs `iDAC out of
+range` for each, so **that code and that message do not describe what the
+backlight does above 550**; the earlier "550 is the ceiling" conclusion was
+wrong. The firmware caps the request itself at 1600.
+
+Not measured with an instrument. `bin/xdr-boost` uses this, limited to 1000
+nits unless `XDR_BOOST_UNSAFE=1`.
+
