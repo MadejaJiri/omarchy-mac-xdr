@@ -5,9 +5,33 @@ Pros running [Omarchy](https://omarchy.org) on the Asahi-derived
 `linux-aurora` kernel: a desktop brighter than the 500-nit SDR limit, and
 correct HDR playback.
 
-**Status: `bin/xdr-boost` raises the built-in panel's backlight up to 1000
-nits (1600 on request). Judged by eye only; not measured with a meter. HDR
-content is not working yet.**
+**Status: brightness works.** The ordinary brightness control can be stretched
+over a range you choose, from 2 nits up to the panel's 1600-nit peak, with a
+top-bar widget to set it and an option to apply it at every login. Levels are
+judged by eye, not measured with a meter. HDR content is not working yet.
+
+## Install
+
+```bash
+./install.sh
+```
+
+Asks for sudo once. It installs a kernel module that is built and loaded at
+every boot (`omarchy-xdr-probe.service`), the `omarchy-xdr` command, and the
+**XDR Brightness** widget in the Omarchy bar. `./install.sh --uninstall`
+removes all of it.
+
+In the widget: the switch turns the extended range on or off, **Maximum** is
+what 100% brightness means (500 to 1600 nits), **Minimum** is the bottom of
+the scale (2 nits is the firmware's lowest level), and **Apply at login**
+restores your choice after a reboot. The brightness keys and slider keep
+working as before, now across that range. The same from a terminal:
+`omarchy-xdr enable | disable | max 1200 | min 2 | autostart on | status`.
+
+Apple holds this panel to 1000 nits sustained full-screen and uses 1600 only
+for HDR highlights, and under Linux the firmware does not get a real panel
+temperature. Running the whole screen above 1000 nits for long is at your own
+risk.
 
 Linux on these machines stops at about 500 nits. The panel reaches 1000 nits
 sustained and 1600 peak, but only through the display coprocessor's HDR path,
@@ -22,7 +46,9 @@ to be found out. This repository currently holds the tool for finding out.
 | `probe/` | `apple_xdr_probe`, a kernel module that hooks the running display driver. It can rewrite the backlight request, retag surfaces as PQ/BT.2020, patch unknown bytes of a frame submission, and read back the brightness the firmware reports. No driver rebuild, no reboot, no compositor restart. |
 | `bin/xdr-probe` | Builds, loads and drives the module. |
 | `bin/xdr-experiment` | Runs the first two experiments step by step and logs what the firmware reported and what you saw. |
-| `bin/xdr-boost` | `on` / `off` / `toggle` / `set <nits>` / `up` / `down`: backlight above the driver's 504-nit maximum. Needs the probe loaded. |
+| `bin/omarchy-xdr` | Saved brightness-range preference and the command that applies it. |
+| `plugin/xdr.brightness/` | The Omarchy bar widget and settings panel. |
+| `system/` | Boot-time module loader and systemd units. |
 | `bin/xdr-hdr-test` | Hyprland HDR output with PQ-tagged frames at chosen SDR white levels. |
 | `docs/research.md` | Findings so far, open questions, experiment log. |
 

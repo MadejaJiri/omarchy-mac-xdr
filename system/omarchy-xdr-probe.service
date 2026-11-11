@@ -1,0 +1,13 @@
+[Unit]
+Description=Load the Apple XDR brightness module
+After=systemd-modules-load.service
+ConditionPathIsDirectory=/proc/device-tree/soc
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/omarchy-xdr/load
+ExecStop=/usr/bin/rmmod apple_xdr_probe
+
+[Install]
+WantedBy=multi-user.target

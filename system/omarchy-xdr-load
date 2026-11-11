@@ -1,0 +1,44 @@
+#!/bin/bash
+# Root: build (once per kernel) and load apple_xdr_probe for the built-in
+# panel, then let the wheel group set its parameters. Run by
+# omarchy-xdr-probe.service at boot.
+set -euo pipefail
+
+src=/usr/local/src/omarchy-xdr
+mod=apple_xdr_probe
+build=/var/cache/omarchy-xdr/$(uname -r)
+params=/sys/module/$mod/parameters
+group=wheel
+
+[[ -d /sys/module/$mod ]] && exit 0
+
+node=""
+for d in /proc/device-tree/soc/dcp@*; do
+  [[ -d $d/panel ]] && node=$d && break
+done
+[[ -n $node ]] || { echo "no DCP with a built-in panel" >&2; exit 1; }
+compat=$(od -An -tx1 "$node/apple,firmware-compat" | tr -d ' \n')
+# The module knows the 13.5 swap layout only.
+[[ $compat == 0000000d00000005* ]] || { echo "DCP firmware-compat $compat is not 13.5" >&2; exit 1; }
+
+# Offsets come from the running driver's BTF, so it must be loaded first.
+for _ in $(seq 60); do [[ -r /sys/kernel/btf/appledrm ]] && break; sleep 1; done
+[[ -r /sys/kernel/btf/appledrm ]] || { echo "appledrm is not loaded" >&2; exit 1; }
+
+if [[ ! -f $build/$mod.ko || $src/$mod.c -nt $build/$mod.ko ]]; then
+  rm -rf "$build"
+  mkdir -p "$build"
+  cp "$src"/* "$build"/
+  make -C "$build" >"$build/build.log" 2>&1 || { tail -20 "$build/build.log" >&2; exit 1; }
+fi
+
+addrs() { awk -v s="$1" '$3 == s && $4 == "[appledrm]" { printf "%s0x%s", sep, $1; sep = "," }' /proc/kallsyms; }
+args=()
+for k in pr_publish:trampoline_pr_publish get_uint:trampoline_get_uint_prop \
+         sr_set_int:trampoline_sr_set_property_int set_fx:trampoline_set_fx_prop; do
+  a=$(addrs "${k#*:}")
+  [[ -n $a ]] && args+=("${k%%:*}=$a")
+done
+
+insmod "$build/$mod.ko" panel="${node##*@}.dcp" "${args[@]}"
+chgrp "$group" "$params"/{range_on,range_min,range_max,bl_raw,bl_every,xfer,cspace,temp,surf_mask,poke,hold_ms,reset}

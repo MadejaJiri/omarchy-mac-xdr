@@ -28,6 +28,7 @@
 #include <linux/hex.h>
 #include <linux/jiffies.h>
 #include <linux/kprobes.h>
+#include <linux/math64.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/spinlock.h>
@@ -82,6 +83,18 @@ static char poke_text[256];
 static int temp = -1;
 static u64 swaps_seen, swaps_patched;
 static u32 last_bl_sent, last_bl_driver;
+
+/*
+ * Range mapping: stretch the ordinary backlight scale (0..max_brightness in
+ * sysfs) over [range_min, range_max], both given as encoded requests.  The
+ * encoding is a small float (exponent and mantissa), so interpolating the
+ * encoded value linearly gives near-geometric steps in nits: each press of a
+ * brightness key changes the level by about the same ratio.  Not subject to
+ * hold_ms; this is the mode meant to stay on.
+ */
+static unsigned int range_on;
+static u32 range_min, range_max = 0x7f7d5f50;
+static struct backlight_device *range_bd;
 
 static void kick_fn(struct work_struct *work);
 static void expire_fn(struct work_struct *work);
@@ -155,6 +168,17 @@ static int push_pre(struct kprobe *kp, struct pt_regs *regs)
 	swaps_seen++;
 	if (req[XDR_BL_POWER_OFF] == BL_POWER_ON)
 		last_bl_driver = get_unaligned_le32(req + XDR_BL_VALUE_OFF);
+	if (range_on && range_bd && req[XDR_BL_POWER_OFF] == BL_POWER_ON &&
+	    !(armed && bl_raw)) {
+		u32 max = range_bd->props.max_brightness;
+		u32 b = min_t(u32, range_bd->props.brightness, max);
+		u32 lo = min(range_min, range_max);
+		u32 v = lo + (max ? div_u64((u64)(range_max - lo) * b, max) : 0);
+
+		put_unaligned_le32(v, req + XDR_BL_VALUE_OFF);
+		last_bl_sent = v;
+		swaps_patched++;
+	}
 	if (!armed)
 		goto out;
 
@@ -387,6 +411,32 @@ static const struct kernel_param_ops bl_raw_ops = {
 	.set = set_bl_raw,
 	.get = param_get_uint,
 };
+
+static int set_range(const char *val, const struct kernel_param *kp)
+{
+	struct backlight_device *bd;
+	int ret = param_set_uint(val, kp);
+
+	if (ret)
+		return ret;
+	if (!READ_ONCE(range_bd)) {
+		bd = backlight_device_get_by_name(backlight);
+		if (bd && cmpxchg(&range_bd, NULL, bd))
+			put_device(&bd->dev);
+	}
+	schedule_work(&kick_work);
+	return 0;
+}
+
+static const struct kernel_param_ops range_ops = {
+	.set = set_range,
+	.get = param_get_uint,
+};
+module_param_cb(range_on, &range_ops, &range_on, 0664);
+MODULE_PARM_DESC(range_on, "1: map the backlight scale onto [range_min, range_max]");
+module_param_cb(range_min, &range_ops, &range_min, 0664);
+module_param_cb(range_max, &range_ops, &range_max, 0664);
+MODULE_PARM_DESC(range_max, "encoded request sent at 100% brightness");
 
 module_param_cb(bl_raw, &bl_raw_ops, &bl_raw, 0664);
 MODULE_PARM_DESC(bl_raw, "send this bl_value instead of the driver's; 0: off");
@@ -647,9 +697,12 @@ static void __exit xdr_probe_exit(void)
 	cancel_delayed_work_sync(&expire_work);
 	raw_spin_lock_irqsave(&lock, flags);
 	armed = false;
+	range_on = 0;
 	raw_spin_unlock_irqrestore(&lock, flags);
 	schedule_work(&kick_work);
 	flush_work(&kick_work);
+	if (range_bd)
+		put_device(&range_bd->dev);
 
 	if (mnits_hooked)
 		unregister_kretprobe(&mnits_krp);

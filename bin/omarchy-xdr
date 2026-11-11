@@ -1,0 +1,107 @@
+#!/bin/bash
+# Extended brightness range for the built-in Apple mini-LED panel.
+#
+# The ordinary brightness control (keys, slider) keeps working; this sets the
+# range it covers: MIN nits at the bottom, MAX nits at 100%.
+#
+#   omarchy-xdr status [--json]
+#   omarchy-xdr enable | disable | toggle
+#   omarchy-xdr max <nits>        500..1600 (the panel's peak)
+#   omarchy-xdr min <nits>        2..100 (2 is the firmware's lowest level)
+#   omarchy-xdr apply             apply the saved preference (run at login)
+#   omarchy-xdr autostart on|off  apply the saved preference at every login
+#
+# Preferences are saved in ~/.config/omarchy-xdr/config.
+set -euo pipefail
+
+params=/sys/module/apple_xdr_probe/parameters
+conf_dir=${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-xdr
+conf=$conf_dir/config
+unit=omarchy-xdr.service
+bl=/sys/class/backlight/apple-panel-bl
+
+MAX_LIMIT=1600
+STOCK_MAX=504   # what the stock driver reaches at 100%
+STOCK_MIN=2
+
+ENABLED=0 MAX=1000 MIN=2
+[[ -r $conf ]] && while IFS='=' read -r k v; do
+  case $k in
+    ENABLED) [[ $v =~ ^[01]$ ]] && ENABLED=$v ;;
+    MAX) [[ $v =~ ^[0-9]+$ ]] && MAX=$v ;;
+    MIN) [[ $v =~ ^[0-9]+$ ]] && MIN=$v ;;
+  esac
+done < "$conf"
+
+die() { echo "omarchy-xdr: $*" >&2; exit 1; }
+loaded() { [[ -w $params/range_on ]]; }
+save() { mkdir -p "$conf_dir"; printf 'ENABLED=%s\nMAX=%s\nMIN=%s\n' "$ENABLED" "$MAX" "$MIN" > "$conf"; }
+
+# The firmware's request format is a 4.28 float: nits = 2^(e+1) * (1 + f).
+encode() { python3 -c "
+import math, sys
+n = max(2.0, float(sys.argv[1])); e = int(math.floor(math.log2(n))) - 1
+print((e << 28) | int((n / 2 ** (e + 1) - 1) * 2 ** 28))" "$1"; }
+decode() { python3 -c "
+import sys
+v = int(sys.argv[1], 0); print(round(2 ** ((v >> 28) + 1) * (1 + (v & 0xfffffff) / 2 ** 28)))" "$1"; }
+
+apply() {
+  loaded || die "kernel module not loaded (run install.sh, or bin/xdr-probe load)"
+  if (( ENABLED )); then
+    printf '%s' "$(encode "$MIN")" > $params/range_min
+    printf '%s' "$(encode "$MAX")" > $params/range_max
+    printf 1 > $params/range_on
+  else
+    printf 0 > $params/range_on
+  fi
+}
+
+autostart_state() { systemctl --user is-enabled $unit >/dev/null 2>&1 && echo 1 || echo 0; }
+
+status() {
+  local is_loaded=0 active=0 sent="" nits=0 pct=0
+  loaded && is_loaded=1
+  if (( is_loaded )); then
+    [[ $(cat $params/range_on) == 1 ]] && active=1
+    sent=$(sed -E 's/.*bl_sent=(0x[0-9a-f]+).*/\1/' $params/status)
+    if (( active )) && [[ $sent != 0x00000000 ]]; then nits=$(decode "$sent"); fi
+  fi
+  [[ -r $bl/brightness ]] && pct=$(( $(cat $bl/brightness) * 100 / $(cat $bl/max_brightness) ))
+  if [[ ${1:-} == --json ]]; then
+    printf '{"loaded":%s,"enabled":%s,"active":%s,"max":%s,"min":%s,"autostart":%s,"percent":%s,"nits":%s,"maxLimit":%s}\n' \
+      $is_loaded "$ENABLED" $active "$MAX" "$MIN" "$(autostart_state)" $pct $nits $MAX_LIMIT
+  else
+    (( is_loaded )) || echo "kernel module: not loaded"
+    echo "extended range: $( (( ENABLED )) && echo on || echo off)$( (( ENABLED && !active )) && echo ' (saved, not applied)')"
+    echo "range: $MIN .. $MAX nits"
+    (( active && nits )) && echo "now: $pct% = about $nits nits requested"
+    echo "apply at login: $( (( $(autostart_state) )) && echo on || echo off)"
+  fi
+}
+
+num() { [[ ${1:-} =~ ^[0-9]+$ ]] || die "expected a whole number of nits"; echo "$1"; }
+
+case ${1:-status} in
+  status) status "${2:-}" ;;
+  enable) ENABLED=1; save; apply ;;
+  disable) ENABLED=0; save; apply ;;
+  toggle) ENABLED=$(( !ENABLED )); save; apply ;;
+  max)
+    n=$(num "${2:-}"); (( n >= 500 && n <= MAX_LIMIT )) || die "max must be 500..$MAX_LIMIT"
+    MAX=$n; save; if (( ENABLED )); then apply; fi ;;
+  min)
+    n=$(num "${2:-}"); (( n >= 2 && n <= 100 )) || die "min must be 2..100"
+    MIN=$n; save; if (( ENABLED )); then apply; fi ;;
+  apply)
+    # At login the module's parameters may not be writable for a moment yet.
+    for _ in 1 2 3 4 5 6 7 8 9 10; do loaded && break; sleep 1; done
+    apply ;;
+  autostart)
+    case ${2:-} in
+      on) systemctl --user enable $unit ;;
+      off) systemctl --user disable $unit ;;
+      *) die "autostart on|off" ;;
+    esac ;;
+  *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac
