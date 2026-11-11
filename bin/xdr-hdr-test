@@ -1,0 +1,73 @@
+#!/bin/bash
+# End-to-end test: Hyprland renders the desktop as PQ/BT.2020 with SDR white
+# at a chosen luminance, and the probe tags the frames as PQ for the firmware.
+# If both halves work the desktop looks normal, only brighter at each step.
+#
+#   xdr-hdr-test [nits...]      default: 203 400 600 800 1000
+#
+# Everything is runtime-only and is reverted on exit (hyprctl reload, probe
+# reset), including on Ctrl-C.
+set -uo pipefail
+
+params=/sys/module/apple_xdr_probe/parameters
+out=${XDR_OUTPUT:-eDP-1}
+hold=${XDR_HOLD:-4}
+peak=${XDR_PEAK:-1600}
+steps=("$@"); ((${#steps[@]})) || steps=(203 400 600 800 1000)
+
+[[ -d $params ]] || { echo "probe not loaded: run bin/xdr-probe load" >&2; exit 1; }
+
+read -r mode pos scale < <(hyprctl monitors -j | python3 -c "
+import json, sys
+m = next(m for m in json.load(sys.stdin) if m['name'] == '$out')
+print('%dx%d@%.2f' % (m['width'], m['height'], m['refreshRate']), '%dx%d' % (m['x'], m['y']), m['scale'])")
+[[ -n ${mode:-} ]] || { echo "no monitor $out" >&2; exit 1; }
+
+conf=$(mktemp --suffix=.conf)
+cleanup() {
+  echo 1 > $params/reset
+  hyprctl reload >/dev/null
+  rm -f "$conf"
+  echo "reverted"
+}
+trap cleanup EXIT
+
+state() {
+  hyprctl monitors -j | python3 -c "
+import json, sys
+m = next(m for m in json.load(sys.stdin) if m['name'] == '$out')
+print('hyprland: format=%s preset=%s sdrMax=%s' % (m.get('currentFormat'), m.get('colorManagementPreset'), m.get('sdrMaxLuminance')))"
+  echo "firmware: $(head -1 $params/mnits 2>/dev/null || echo 'no report')"
+  cat $params/status
+}
+
+echo "before: $(state | tr '\n' ' ')"
+printf '%s' $(( (hold + 4) * 1000 )) > $params/hold_ms
+
+for nits in "${steps[@]}"; do
+  cat > "$conf" <<EOF
+monitorv2 {
+  output = $out
+  mode = $mode
+  position = $pos
+  scale = $scale
+  bitdepth = 10
+  cm = hdr
+  supports_wide_color = 1
+  supports_hdr = 1
+  sdr_min_luminance = 0.005
+  sdr_max_luminance = $nits
+  min_luminance = 0
+  max_luminance = $peak
+  max_avg_luminance = 1000
+}
+EOF
+  start=$(date +%s.%N)
+  echo "== SDR white at $nits nits"
+  hyprctl keyword source "$conf" | head -1
+  printf 16 > $params/xfer
+  printf 9 > $params/cspace
+  sleep "$hold"
+  state
+  journalctl -k --since "@$start" --no-pager -o cat 2>/dev/null | grep -iE 'dcp|drm' | tail -5 | sed 's/^/  log: /'
+done
