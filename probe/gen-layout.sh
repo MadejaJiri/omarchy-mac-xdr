@@ -52,5 +52,8 @@ cat <<EOF
 #define XDR_SURF_CSPACE_OFF	$(off dcp_surface colorspace)
 #define XDR_SURF_NULL_OFF	$(off "$SWAP" surf_null)
 
+#define XDR_MNITS_MILLINITS_OFF	$(off dcp_system_ev_mnits millinits)
+#define XDR_MNITS_IDAC_OFF	$(off dcp_system_ev_mnits idac)
+
 #endif
 EOF

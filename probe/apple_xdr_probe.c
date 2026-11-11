@@ -124,7 +124,7 @@ static void arm(void)
 	armed = true;
 	raw_spin_unlock_irqrestore(&lock, flags);
 	if (hold_ms)
-		mod_delayed_work(system_wq, &expire_work, msecs_to_jiffies(hold_ms));
+		mod_delayed_work(system_percpu_wq, &expire_work, msecs_to_jiffies(hold_ms));
 	else
 		cancel_delayed_work(&expire_work);
 	schedule_work(&kick_work);
@@ -506,6 +506,75 @@ static int get_keys(char *buf, const struct kernel_param *kp)
 static const struct kernel_param_ops keys_ops = { .get = get_keys };
 module_param_cb(keys, &keys_ops, NULL, 0444);
 
+/*
+ * The firmware logs the level it actually reached ("mNits" events on the
+ * system endpoint).  The driver clamps that to the device tree maximum before
+ * showing it as actual_brightness; keep the raw values.
+ * parse_system_log_mnits(handle, struct dcp_system_ev_mnits *entry)
+ */
+#define MAX_MNITS 12
+static struct {
+	u32 millinits, idac;
+	unsigned long when;
+} mnits_log[MAX_MNITS];
+static u64 n_mnits;
+
+static int mnits_entry(struct kretprobe_instance *ri, struct pt_regs *regs)
+{
+	*(void **)ri->data = (void *)regs->regs[1];
+	return 0;
+}
+
+static int mnits_ret(struct kretprobe_instance *ri, struct pt_regs *regs)
+{
+	const u32 *ev = *(void **)ri->data;
+	unsigned long flags;
+	int i;
+
+	if (regs_return_value(regs) || !ev)
+		return 0;
+	raw_spin_lock_irqsave(&lock, flags);
+	i = n_mnits++ % MAX_MNITS;
+	mnits_log[i].millinits = ev[XDR_MNITS_MILLINITS_OFF / 4];
+	mnits_log[i].idac = ev[XDR_MNITS_IDAC_OFF / 4];
+	mnits_log[i].when = jiffies;
+	raw_spin_unlock_irqrestore(&lock, flags);
+	return 0;
+}
+
+static struct kretprobe mnits_krp = {
+	.kp.symbol_name = "appledrm:parse_system_log_mnits",
+	.entry_handler = mnits_entry,
+	.handler = mnits_ret,
+	.data_size = sizeof(void *),
+	.maxactive = 4,
+};
+static bool mnits_hooked;
+
+static int get_mnits(char *buf, const struct kernel_param *kp)
+{
+	unsigned long flags;
+	int k, len = 0;
+	u64 n;
+
+	raw_spin_lock_irqsave(&lock, flags);
+	n = n_mnits;
+	for (k = 0; k < MAX_MNITS && k < n; k++) {
+		int i = (n - 1 - k) % MAX_MNITS;
+
+		len += sysfs_emit_at(buf, len, "%u.%03u nits idac=%u age_ms=%u\n",
+				     mnits_log[i].millinits / 1000,
+				     mnits_log[i].millinits % 1000, mnits_log[i].idac,
+				     jiffies_to_msecs(jiffies - mnits_log[i].when));
+	}
+	raw_spin_unlock_irqrestore(&lock, flags);
+	return len;
+}
+
+static const struct kernel_param_ops mnits_ops = { .get = get_mnits };
+module_param_cb(mnits, &mnits_ops, NULL, 0444);
+MODULE_PARM_DESC(mnits, "levels the firmware reported, newest first, unclamped");
+
 /* Writing anything drops every override at once. */
 static int set_reset(const char *val, const struct kernel_param *kp)
 {
@@ -559,6 +628,12 @@ static int __init xdr_probe_init(void)
 			n_temp_krps++;
 	}
 
+	ret = register_kretprobe(&mnits_krp);
+	if (ret)
+		pr_warn("cannot hook parse_system_log_mnits: %d\n", ret);
+	else
+		mnits_hooked = true;
+
 	pr_info("hooked dcp_push and %d callbacks for %s (swap request %u bytes)\n",
 		n_cb_kps, panel, XDR_REQ_SIZE);
 	return 0;
@@ -576,6 +651,8 @@ static void __exit xdr_probe_exit(void)
 	schedule_work(&kick_work);
 	flush_work(&kick_work);
 
+	if (mnits_hooked)
+		unregister_kretprobe(&mnits_krp);
 	for (i = 0; i < n_temp_krps; i++)
 		unregister_kretprobe(&temp_krps[i]);
 	for (i = 0; i < n_cb_kps; i++)

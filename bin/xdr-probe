@@ -2,6 +2,7 @@
 # Build, load and drive the apple_xdr_probe research module.
 #
 #   xdr-probe load              build for the running kernel and insmod (asks for sudo)
+#   xdr-probe reload            unload if loaded, then load (after a git pull)
 #   xdr-probe unload            rmmod; the panel returns to the driver's level
 #   xdr-probe status            what was sent, what the firmware reported
 #   xdr-probe set k=v [k=v...]  write parameters (bl_raw, xfer, cspace, poke, temp, hold_ms...)
@@ -68,8 +69,8 @@ cmd_status() {
   for bl in /sys/class/backlight/apple-panel-bl; do
     echo "backlight: brightness=$(cat $bl/brightness) actual=$(cat $bl/actual_brightness) max=$(cat $bl/max_brightness)"
   done
-  echo "--- published by the firmware (prop 15 = nits * 65536 on 13.5)"
-  awk '{ print } $2 == 15 { printf "    -> %.1f nits\n", $4 / 65536 }' $params/props
+  echo "--- levels the firmware reported, newest first (unclamped)"
+  head -4 $params/mnits
   echo "--- named properties (g: firmware asked, s/f: firmware set)"
   cat $params/keys
 }
@@ -86,8 +87,9 @@ cmd_set() {
 case ${1:-} in
   load) cmd_load ;;
   unload) cmd_unload ;;
+  reload) [[ -d /sys/module/$mod ]] && cmd_unload; cmd_load ;;
   status) cmd_status ;;
   set) shift; cmd_set "$@" ;;
   reset) [[ -d $params ]] || die "not loaded"; echo 1 > $params/reset ;;
-  *) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+  *) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac
