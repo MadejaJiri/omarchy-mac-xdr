@@ -23,11 +23,9 @@ m = next(m for m in json.load(sys.stdin) if m['name'] == '$out')
 print('%dx%d@%.2f' % (m['width'], m['height'], m['refreshRate']), '%dx%d' % (m['x'], m['y']), m['scale'])")
 [[ -n ${mode:-} ]] || { echo "no monitor $out" >&2; exit 1; }
 
-conf=$(mktemp --suffix=.conf)
 cleanup() {
   echo 1 > $params/reset
   hyprctl reload >/dev/null
-  rm -f "$conf"
   echo "reverted"
 }
 trap cleanup EXIT
@@ -45,26 +43,15 @@ echo "before: $(state | tr '\n' ' ')"
 printf '%s' $(( (hold + 4) * 1000 )) > $params/hold_ms
 
 for nits in "${steps[@]}"; do
-  cat > "$conf" <<EOF
-monitorv2 {
-  output = $out
-  mode = $mode
-  position = $pos
-  scale = $scale
-  bitdepth = 10
-  cm = hdr
-  supports_wide_color = 1
-  supports_hdr = 1
-  sdr_min_luminance = 0.005
-  sdr_max_luminance = $nits
-  min_luminance = 0
-  max_luminance = $peak
-  max_avg_luminance = 1000
-}
-EOF
   start=$(date +%s.%N)
   echo "== SDR white at $nits nits"
-  hyprctl keyword source "$conf" | head -1
+  hyprctl eval "hl.monitor({ output = \"$out\", mode = \"$mode\", position = \"$pos\", scale = $scale, bitdepth = 10, cm = \"hdr\", supports_wide_color = 1, supports_hdr = 1, sdr_min_luminance = 0.005, sdr_max_luminance = $nits, min_luminance = 0, max_luminance = $peak, max_avg_luminance = 1000 })" | head -1
+  sleep 0.7
+  # Never tag an sRGB picture as PQ: that is a white-out, not a test.
+  if ! hyprctl monitors -j | grep -q '"colorManagementPreset": "hdr"'; then
+    echo "Hyprland did not switch $out to HDR; stopping" >&2
+    exit 1
+  fi
   printf 16 > $params/xfer
   printf 9 > $params/cspace
   sleep "$hold"

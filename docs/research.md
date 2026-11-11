@@ -148,3 +148,35 @@ surfaces, with the compositor placing SDR white wherever the user wants it.
 Still open: how bright PQ white actually gets (peak and sustained), whether
 the backlight request still scales a PQ picture (question 3), and the thermal
 behaviour.
+
+### 2026-11-12, second session: unclamped firmware readback
+
+The probe now hooks the firmware's `mNits` events (level reached, iDAC code).
+
+| `bl_value` | firmware nits | iDAC |
+| --- | --- | --- |
+| `0x7a4d3c25` | 420.827 | 49168 |
+| `0x7f7d5f50` (driver's "500") | 503.835 | 59538 |
+| `0x81300000` | 550.000 | 65404 |
+| `0x84000000` | 640.000 | 65405 |
+| `0x90000000` | 1024.000 | 65405 |
+| `0xa0000000` | 1600.000 | 65405 |
+
+- The encoding is exact, not approximate: the top 4 bits are an exponent `e`
+  and the low 28 a fraction `f`, and `nits = 2^(e+1) * (1 + f)`. (The earlier
+  log2 reading was this curve seen through too few points.) Every row above
+  fits to three decimals.
+- The backlight DAC saturates at 65405, which is 550 nits. Above that the
+  firmware echoes the request (capped at 1600) but the iDAC code does not
+  move. **The SDR backlight ceiling of this panel is 550 nits**; the driver
+  stops at 504. That is 9% the driver could offer with no HDR at all.
+- `mNits` reports the backlight setting only. It does not change while PQ
+  surfaces are shown, so it cannot measure HDR output.
+
+**Hyprland renders PQ and the firmware accepts it.** A runtime rule
+(`bitdepth = 10, cm = "hdr", supports_hdr = 1, sdr_max_luminance = N`) switches
+the output to `XRGB2101010` with a PQ/BT.2020 picture; with the probe tagging
+those frames `xfer_func = 16, colorspace = 9` the firmware took about 70
+frames a second for 25 seconds with SDR white stepped from 203 to 1000 nits,
+logged no errors, and went back to SDR cleanly. `bin/xdr-hdr-test` repeats
+this. What it looked like is recorded below once observed.
