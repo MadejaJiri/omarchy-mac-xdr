@@ -1,0 +1,93 @@
+#!/bin/bash
+# Build, load and drive the apple_xdr_probe research module.
+#
+#   xdr-probe load              build for the running kernel and insmod (asks for sudo)
+#   xdr-probe unload            rmmod; the panel returns to the driver's level
+#   xdr-probe status            what was sent, what the firmware reported
+#   xdr-probe set k=v [k=v...]  write parameters (bl_raw, xfer, cspace, poke, temp, hold_ms...)
+#   xdr-probe reset             drop every override now
+set -euo pipefail
+
+root=$(dirname "$(dirname "$(readlink -f "$0")")")
+mod=apple_xdr_probe
+params=/sys/module/$mod/parameters
+
+die() { echo "xdr-probe: $*" >&2; exit 1; }
+
+panel_node() {
+  local d
+  for d in /proc/device-tree/soc/dcp@*; do
+    [[ -d $d/panel ]] && { echo "$d"; return; }
+  done
+  die "no DCP with a built-in panel in the device tree"
+}
+
+addrs() {
+  sudo awk -v s="$1" '$3 == s && $4 == "[appledrm]" { printf "%s0x%s", sep, $1; sep = "," }' /proc/kallsyms
+}
+
+cmd_load() {
+  local node compat dev args=()
+  [[ -d /sys/module/$mod ]] && die "already loaded"
+  node=$(panel_node)
+  compat=$(od -An -tx1 "$node/apple,firmware-compat" | tr -d ' \n')
+  # The probe knows the 13.5 swap layout only.
+  [[ $compat == 0000000d00000005* ]] || die "DCP firmware-compat $compat is not 13.5; layout unknown"
+  dev=${node##*@}.dcp
+
+  make -C "$root/probe" >/dev/null 2>&1 || make -C "$root/probe"
+
+  local k sym a
+  for k in pr_publish:trampoline_pr_publish get_uint:trampoline_get_uint_prop \
+           sr_set_int:trampoline_sr_set_property_int set_fx:trampoline_set_fx_prop; do
+    sym=${k#*:}
+    a=$(addrs "$sym")
+    [[ -n $a ]] && args+=("${k%%:*}=$a")
+  done
+
+  sudo insmod "$root/probe/$mod.ko" panel="$dev" "${args[@]}"
+  # Let the invoking user drive the experiment without sudo for every write.
+  sudo chgrp "$(id -g)" "$params"/{bl_raw,bl_every,xfer,cspace,temp,surf_mask,poke,hold_ms,reset}
+  echo "loaded for $dev"
+  cmd_status
+}
+
+cmd_unload() {
+  sudo rmmod $mod
+}
+
+cmd_status() {
+  [[ -d $params ]] || die "not loaded"
+  cat $params/status
+  local p
+  for p in bl_raw bl_every xfer cspace temp surf_mask hold_ms poke; do
+    printf '%s=%s ' "$p" "$(cat $params/$p)"
+  done
+  echo
+  local bl
+  for bl in /sys/class/backlight/apple-panel-bl; do
+    echo "backlight: brightness=$(cat $bl/brightness) actual=$(cat $bl/actual_brightness) max=$(cat $bl/max_brightness)"
+  done
+  echo "--- published by the firmware (prop 15 = nits * 65536 on 13.5)"
+  awk '{ print } $2 == 15 { printf "    -> %.1f nits\n", $4 / 65536 }' $params/props
+  echo "--- named properties (g: firmware asked, s/f: firmware set)"
+  cat $params/keys
+}
+
+cmd_set() {
+  [[ -d $params ]] || die "not loaded"
+  local kv
+  for kv in "$@"; do
+    [[ $kv == *=* ]] || die "expected key=value, got '$kv'"
+    printf '%s' "${kv#*=}" > "$params/${kv%%=*}"
+  done
+}
+
+case ${1:-} in
+  load) cmd_load ;;
+  unload) cmd_unload ;;
+  status) cmd_status ;;
+  set) shift; cmd_set "$@" ;;
+  reset) [[ -d $params ]] || die "not loaded"; echo 1 > $params/reset ;;
+  *) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac

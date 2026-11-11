@@ -1,0 +1,9 @@
+probe/layout.h
+probe/*.o
+probe/*.ko
+probe/*.mod
+probe/*.mod.c
+probe/.*.cmd
+probe/Module.symvers
+probe/modules.order
+probe/.tmp_versions/
