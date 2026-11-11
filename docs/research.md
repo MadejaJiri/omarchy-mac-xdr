@@ -179,4 +179,35 @@ the output to `XRGB2101010` with a PQ/BT.2020 picture; with the probe tagging
 those frames `xfer_func = 16, colorspace = 9` the firmware took about 70
 frames a second for 25 seconds with SDR white stepped from 203 to 1000 nits,
 logged no errors, and went back to SDR cleanly. `bin/xdr-hdr-test` repeats
-this. What it looked like is recorded below once observed.
+this.
+
+### 2026-11-12, third session: what the PQ picture looks like
+
+Hyprland rendering PQ/BT.2020 at 10 bit, frames tagged `xfer_func = 16`,
+desktop (SDR) white placed at the given luminance, as seen by eye:
+
+| SDR white | PQ code of white | seen |
+| --- | --- | --- |
+| 5 nits | 0.27 | washed out |
+| 10, 20, 30 | 0.33 - 0.43 | mostly white, slight variation |
+| 50 | 0.44 | washed out, bright |
+| 100 - 1000 | 0.51 - 0.75 | ~99% white, only pure black still visible |
+
+No step looked normal. Black stays black, but codes from roughly 0.3 up are
+already at or near white. So the earlier "PQ is honoured" conclusion was too
+strong: transfer function 16 selects *a* strongly expanding decode, and it
+does raise the panel well above SDR white, but with only the surface tag set
+the result is not a usable PQ picture. Either the firmware decodes PQ and
+then normalises by a reference white that is unset (zero or minimal) in the
+swap, or 16 is not plain PQ on this firmware. The unmapped swap bytes are
+the place to look for the first; a calibrated grey ramp instead of
+descriptions by eye is the way to tell the two apart.
+
+Status: HDR / more than 550 nits is **not solved**.
+
+### What works today
+
+`bin/xdr-boost on` pins the backlight request at `0x81300000`. The firmware
+confirms 550.000 nits (iDAC 65404) against 503.835 at the driver's maximum,
+and holds it. This is the full range of the SDR backlight.
+

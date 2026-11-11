@@ -5,7 +5,9 @@ Pros running [Omarchy](https://omarchy.org) on the Asahi-derived
 `linux-aurora` kernel: a desktop brighter than the 500-nit SDR limit, and
 correct HDR playback.
 
-**Status: research. Nothing here makes the screen brighter yet.**
+**Status: the backlight can be raised from 504 to 550 nits (`bin/xdr-boost`),
+the panel's real SDR ceiling. Anything above that needs the HDR path, which
+responds but does not yet give a usable picture.**
 
 Linux on these machines stops at about 500 nits. The panel reaches 1000 nits
 sustained and 1600 peak, but only through the display coprocessor's HDR path,
@@ -20,6 +22,8 @@ to be found out. This repository currently holds the tool for finding out.
 | `probe/` | `apple_xdr_probe`, a kernel module that hooks the running display driver. It can rewrite the backlight request, retag surfaces as PQ/BT.2020, patch unknown bytes of a frame submission, and read back the brightness the firmware reports. No driver rebuild, no reboot, no compositor restart. |
 | `bin/xdr-probe` | Builds, loads and drives the module. |
 | `bin/xdr-experiment` | Runs the first two experiments step by step and logs what the firmware reported and what you saw. |
+| `bin/xdr-boost` | `on` / `off` / `toggle`: pin the backlight at the firmware's 550-nit ceiling. Needs the probe loaded. |
+| `bin/xdr-hdr-test` | Hyprland HDR output with PQ-tagged frames at chosen SDR white levels. |
 | `docs/research.md` | Findings so far, open questions, experiment log. |
 
 Tested hardware: MacBook Pro 14" M1 Pro (`apple,j314s`), DCP firmware 13.5,

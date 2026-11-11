@@ -1,0 +1,37 @@
+#!/bin/bash
+# Pin the built-in panel at the firmware's real backlight ceiling (550 nits)
+# instead of the driver's maximum (504). Needs the probe: bin/xdr-probe load
+#
+#   xdr-boost on | off | toggle | status
+#
+# While on, the brightness keys have no effect; turn it off to dim again.
+set -euo pipefail
+
+params=/sys/module/apple_xdr_probe/parameters
+# exponent 8, fraction 0x1300000 / 2^28: 2^9 * (1 + 0.0742) = 550 nits,
+# the last request before the firmware logs "iDAC out of range"
+ceiling=0x81300000
+
+[[ -d $params ]] || { echo "xdr-boost: probe not loaded (bin/xdr-probe load)" >&2; exit 1; }
+
+is_on() { [[ $(cat $params/bl_raw) == $((ceiling)) ]] && grep -q 'armed=1' $params/status; }
+note() { command -v notify-send >/dev/null && notify-send -t 2000 "XDR boost" "$1" || true; echo "$1"; }
+
+case ${1:-status} in
+  on)
+    printf 0 > $params/hold_ms
+    printf '%s' $ceiling > $params/bl_raw
+    note "on: backlight at 550 nits"
+    ;;
+  off)
+    echo 1 > $params/reset
+    printf 20000 > $params/hold_ms
+    note "off: back to the brightness keys"
+    ;;
+  toggle) if is_on; then exec "$0" off; else exec "$0" on; fi ;;
+  status)
+    is_on && echo "on" || echo "off"
+    echo "firmware: $(head -1 $params/mnits)"
+    ;;
+  *) sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac
