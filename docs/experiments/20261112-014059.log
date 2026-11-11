@@ -1,0 +1,40 @@
+# 2026-11-12T01:40:59+08:00 7.2.11-14-1-ARCH Apple MacBook Pro (14-inch, M1 Pro, 2021)
+baseline: brightness=500 firmware reports  nits
+### 1. backlight request above 0x7fe07fc0
+== bl_raw 0x80000000: bl_raw=0x80000000
+  firmware reports  nits; armed=1 swaps_seen=23 swaps_patched=1 bl_driver=0x7f7d5f50 bl_sent=0x80000000
+  observed: s
+== bl_raw 0x84000000: bl_raw=0x84000000
+  firmware reports  nits; armed=1 swaps_seen=37 swaps_patched=2 bl_driver=0x7f7d5f50 bl_sent=0x84000000
+  observed: b
+  log: apple-dcp 38bc00000.dcp: RTKit: syslog message: BrightnessLCD.cpp:803: [AFK]nitsToDBV: iDAC out of range
+== bl_raw 0x88000000: bl_raw=0x88000000
+  firmware reports  nits; armed=1 swaps_seen=44 swaps_patched=3 bl_driver=0x7f7d5f50 bl_sent=0x88000000
+  observed: ?
+  log: apple-dcp 38bc00000.dcp: RTKit: syslog message: BrightnessLCD.cpp:803: [AFK]nitsToDBV: iDAC out of range
+== bl_raw 0x8c000000: bl_raw=0x8c000000
+  firmware reports  nits; armed=1 swaps_seen=51 swaps_patched=4 bl_driver=0x7f7d5f50 bl_sent=0x8c000000
+  observed: b
+  log: apple-dcp 38bc00000.dcp: RTKit: syslog message: BrightnessLCD.cpp:803: [AFK]nitsToDBV: iDAC out of range
+== bl_raw 0x90000000: bl_raw=0x90000000
+  firmware reports  nits; armed=1 swaps_seen=68 swaps_patched=5 bl_driver=0x7f7d5f50 bl_sent=0x90000000
+  observed: b
+  log: apple-dcp 38bc00000.dcp: RTKit: syslog message: BrightnessLCD.cpp:803: [AFK]nitsToDBV: iDAC out of range
+== bl_raw 0x96000000: bl_raw=0x96000000
+  firmware reports  nits; armed=1 swaps_seen=76 swaps_patched=6 bl_driver=0x7f7d5f50 bl_sent=0x96000000
+  observed: b
+  log: apple-dcp 38bc00000.dcp: RTKit: syslog message: BrightnessLCD.cpp:803: [AFK]nitsToDBV: iDAC out of range
+### 2. desktop surface retagged
+== PQ + BT.2020: xfer=16 cspace=9
+  firmware reports  nits; armed=1 swaps_seen=84 swaps_patched=9 bl_driver=0x7f7d5f50 bl_sent=0x96000000
+  observed: w
+== PQ, native primaries: xfer=16
+  firmware reports  nits; armed=1 swaps_seen=92 swaps_patched=11 bl_driver=0x7f7d5f50 bl_sent=0x96000000
+  observed: w
+== HLG + BT.2020: xfer=18 cspace=9
+  firmware reports  nits; armed=1 swaps_seen=101 swaps_patched=14 bl_driver=0x7f7d5f50 bl_sent=0x96000000
+  observed: s
+== PQ + BT.2020 with bl_raw at table top: xfer=16 cspace=9 bl_raw=0x7fe07fc0
+  firmware reports  nits; armed=1 swaps_seen=110 swaps_patched=19 bl_driver=0x7f7d5f50 bl_sent=0x7fe07fc0
+  observed: w
+done. Log: /home/george/omarchy-mac-xdr/docs/experiments/20261112-014059.log

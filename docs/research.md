@@ -101,4 +101,50 @@ shippable. There is no published description of the EDR fields.
 
 ## Experiment log
 
-Nothing run yet. `bin/xdr-experiment` writes its logs to `docs/experiments/`.
+### 2026-11-12, j314s, firmware 13.5 (`docs/experiments/20261112-014059.log`)
+
+**`bl_value` is a logarithm of nits, and its range ends just above today's
+maximum.** Overriding the request and reading the firmware's own report
+(`actual_brightness`, valid below the 500 clamp):
+
+| asked (formula below) | firmware reported |
+| --- | --- |
+| 100 | 105 |
+| 200 | 210 |
+| 300 | 314 |
+| 400 | 420 |
+
+So `bl_value = log2(nits / 2) * 2^28` to within 5%: Q4.28 fixed point, not a
+DAC code. The lookup table in the driver is this curve sampled from traces.
+
+Above the table the firmware logs `BrightnessLCD.cpp:803: nitsToDBV: iDAC out
+of range`. Bisecting on that message: `0x81300000` is accepted,
+`0x81310000` is out of range. The driver's maximum today is `0x7f7d5f50`, so
+the plain backlight path has `2^((0x81300000 - 0x7f7d5f50) / 2^28)` = 1.076,
+under 8%, of headroom left. Out-of-range requests looked brighter than the
+normal maximum to the eye, but by how much is not measured yet; the firmware
+most likely clamps at the top of the range.
+
+Conclusion: question 1 is answered. A longer table buys a few percent. It is
+not the way to 1000 nits.
+
+**DCP decodes PQ surfaces on the built-in panel.** Retagging the unchanged
+sRGB desktop as `xfer_func = 16`:
+
+| tag | seen |
+| --- | --- |
+| PQ + BT.2020 | washed out, nearly all white, clearly brighter than SDR maximum |
+| PQ + native primaries | same |
+| HLG (18) + BT.2020 | no change |
+| PQ + BT.2020, backlight request at table top | washed out, bright |
+
+That is what an sRGB signal read as PQ should look like, so the firmware
+honours transfer function 16 with no further swap fields and no HDR colour
+mode. HLG is ignored or unsupported. No firmware errors were logged.
+
+Conclusion: question 2 is answered yes. The route to XDR brightness is PQ
+surfaces, with the compositor placing SDR white wherever the user wants it.
+
+Still open: how bright PQ white actually gets (peak and sustained), whether
+the backlight request still scales a PQ picture (question 3), and the thermal
+behaviour.
