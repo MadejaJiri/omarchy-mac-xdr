@@ -101,4 +101,4 @@ shippable. There is no published description of the EDR fields.
 
 ## Experiment log
 
-Nothing run yet: loading the module needs root.
+Nothing run yet. `bin/xdr-experiment` writes its logs to `docs/experiments/`.

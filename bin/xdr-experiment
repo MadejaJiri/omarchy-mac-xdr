@@ -1,0 +1,86 @@
+#!/bin/bash
+# Run the first two experiments from docs/research.md and log the outcome.
+#
+#   1. backlight requests above the top of the known scale
+#   2. the desktop surface retagged as PQ / BT.2020, then HLG
+#
+# Each step is held for a few seconds, then every override is dropped. After
+# each step you are asked what the screen did; the answer and the brightness
+# the firmware reported go to a log file to commit or paste back.
+#
+# Load the probe first: bin/xdr-probe load
+set -uo pipefail
+
+root=$(dirname "$(dirname "$(readlink -f "$0")")")
+params=/sys/module/apple_xdr_probe/parameters
+bl=/sys/class/backlight/apple-panel-bl
+log=$root/docs/experiments/$(date +%Y%m%d-%H%M%S).log
+hold=${XDR_HOLD:-4}
+
+[[ -d $params ]] || { echo "probe not loaded: run bin/xdr-probe load" >&2; exit 1; }
+[[ -t 0 ]] || { echo "run this in a terminal: it asks what you see" >&2; exit 1; }
+mkdir -p "$(dirname "$log")"
+
+say() { echo "$*" | tee -a "$log"; }
+nits() { awk '$2 == 15 { printf "%.1f", $4 / 65536 }' $params/props; }
+swaps() { sed -E 's/.*swaps_seen=([0-9]+).*/\1/' $params/status; }
+reset() { echo 1 > $params/reset; sleep 1; }
+
+ask() {
+  local a
+  read -r -p "  what did the screen do? [b]righter [s]ame [d]arker [k]black [w]ashed-out/odd colours [q]uit: " a
+  say "  observed: ${a:-none}"
+  [[ $a == q ]] && { reset; say "aborted"; exit 0; }
+  REPLY=$a
+}
+
+alive() {
+  local before after
+  before=$(swaps); brightnessctl -q -d apple-panel-bl set "$(cat $bl/brightness)" 2>/dev/null; sleep 1
+  after=$(swaps)
+  (( after > before ))
+}
+
+step() { # label, then key=value...
+  local label=$1 start kv; shift
+  start=$(date +%s)
+  say "== $label: $*"
+  for kv in "$@"; do printf '%s' "${kv#*=}" > "$params/${kv%%=*}"; done
+  sleep "$hold"
+  say "  firmware reports $(nits) nits; $(cat $params/status)"
+  ask
+  reset
+  journalctl -k --since "@$start" --no-pager -o cat 2>/dev/null | grep -i 'dcp' | tail -8 | sed 's/^/  log: /' | tee -a "$log"
+  if ! alive; then
+    say "  !! no frames are being presented any more: the coprocessor may have crashed. Reboot to recover."
+    exit 2
+  fi
+}
+
+say "# $(date -Is) $(uname -r) $(tr -d '\0' < /proc/device-tree/model)"
+printf '%s' $(( (hold + 6) * 1000 )) > $params/hold_ms
+
+echo "Setting the backlight to its normal maximum for a baseline."
+brightnessctl -q -d apple-panel-bl set 100% 2>/dev/null || echo "  (set brightness to maximum by hand, then press Enter)" && sleep 2
+say "baseline: brightness=$(cat $bl/brightness) firmware reports $(nits) nits"
+read -r -p "Save your work. Press Enter to start, Ctrl-C to stop. "
+
+say "### 1. backlight request above 0x7fe07fc0"
+base=$(nits)
+rose=0
+for v in 0x80000000 0x84000000 0x88000000 0x8c000000 0x90000000 0x96000000; do
+  step "bl_raw $v" bl_raw=$v
+  [[ $REPLY == b ]] && rose=1
+  [[ $REPLY == k || $REPLY == d ]] && break
+done
+if (( ! rose )); then
+  for v in 0xc0000000 0xffffffff; do step "bl_raw $v" bl_raw=$v; done
+fi
+
+say "### 2. desktop surface retagged"
+step "PQ + BT.2020" xfer=16 cspace=9
+step "PQ, native primaries" xfer=16
+step "HLG + BT.2020" xfer=18 cspace=9
+step "PQ + BT.2020 with bl_raw at table top" xfer=16 cspace=9 bl_raw=0x7fe07fc0
+
+say "done. Log: $log"

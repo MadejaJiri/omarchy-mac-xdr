@@ -19,6 +19,7 @@ to be found out. This repository currently holds the tool for finding out.
 | --- | --- |
 | `probe/` | `apple_xdr_probe`, a kernel module that hooks the running display driver. It can rewrite the backlight request, retag surfaces as PQ/BT.2020, patch unknown bytes of a frame submission, and read back the brightness the firmware reports. No driver rebuild, no reboot, no compositor restart. |
 | `bin/xdr-probe` | Builds, loads and drives the module. |
+| `bin/xdr-experiment` | Runs the first two experiments step by step and logs what the firmware reported and what you saw. |
 | `docs/research.md` | Findings so far, open questions, experiment log. |
 
 Tested hardware: MacBook Pro 14" M1 Pro (`apple,j314s`), DCP firmware 13.5,
