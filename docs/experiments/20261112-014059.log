@@ -37,4 +37,4 @@ baseline: brightness=500 firmware reports  nits
 == PQ + BT.2020 with bl_raw at table top: xfer=16 cspace=9 bl_raw=0x7fe07fc0
   firmware reports  nits; armed=1 swaps_seen=110 swaps_patched=19 bl_driver=0x7f7d5f50 bl_sent=0x7fe07fc0
   observed: w
-done. Log: /home/george/omarchy-mac-xdr/docs/experiments/20261112-014059.log
+done. Log: docs/experiments/20261112-014059.log

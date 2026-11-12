@@ -1,159 +1,42 @@
-# Where the 500-nit limit lives
+# How the 500-nit limit works, and how it was lifted
 
 Notes from reading `drivers/gpu/drm/apple` in
 [omacom/linux-aurora](https://github.com/omacom/linux-aurora) (7.2.11,
-`integration/aurora`) and the m1n1 DCP protocol definitions, on a MacBook Pro
-14" M1 Pro (`apple,j314s`) with DCP firmware 13.5.
+`integration/aurora`), the m1n1 DCP protocol definitions, and experiments on a
+MacBook Pro 14" M1 Pro (`apple,j314s`, DCP firmware 13.5, Omarchy 4.5.0).
 
-Everything under "Established" was read from source or from the running
-system. Everything under "Open" is a hypothesis the probe exists to test.
+Evidence is labelled: **measured** means read back from the firmware or the
+kernel, **by eye** means a person watched the screen (no light meter was
+used), **untested** means exactly that.
 
-## Established
+## Summary
 
-**The panel is driven by a coprocessor.** The display, its mini-LED backlight
-and local dimming are run by DCP, an RTKit firmware loaded by iBoot. Linux
-does not program the backlight; it sends DCP a *swap* (a frame presentation)
-that may carry a backlight request, and DCP does the rest.
+1. The limit was in the request, not the hardware. The driver only sends
+   brightness values from a table that ends at 510 nits, and the device tree
+   says 500. **By eye**, the backlight keeps getting brighter well beyond that
+   when the request is larger, up to the top of what the firmware accepts.
+2. The request field is a small float, not a DAC code, so extending the range
+   is arithmetic, not new reverse engineering (**measured**, below).
+3. HDR is a different problem and is **not solved**: surfaces tagged as PQ are
+   decoded differently by the firmware, but the picture is not usable.
 
-**Three separate things hold brightness at ~500 nits.**
+## The brightness request
 
-1. Device tree: `panel { apple,max-brightness = <500>; }`.
-2. Driver: `props.max_brightness = min(dcp->brightness.maximum, 509)`
-   (`dcp_backlight.c`), so raising the device tree value alone gives 509.
-3. The request encoding itself. The driver converts nits to the swap's
-   `bl_value` with a lookup table captured from macOS traces. The table covers
-   2..510 nits and its last entry is `0x7fe07fc`, sent as `0x7fe07fc0`: within
-   0.1% of `S32_MAX`. macOS was never seen to send more, because macOS never
-   asks for more than ~500 nits *through this field* either.
+The backlight level travels in each frame submission (swap, tag `A408`) as
+`bl_value`, with `bl_power = 0x40` for on. The driver converts nits to
+`bl_value` with two lookup tables captured from macOS traces (`dcp_backlight.c`);
+the last entry is `0x7fe07fc0`.
 
-Point 3 is the important one. There is no "slightly higher number" to send
-within the known range: the SDR backlight request is at the top of its scale
-at 510 nits. Whether values above `0x7fffffff` mean anything is unknown.
+The value is a float: the top 4 bits are an exponent `e`, the low 28 bits a
+fraction `f / 2^28`, and
 
-**macOS gets past 500 nits through the HDR path, not the backlight slider.**
-On the XDR panel, SDR white tops out at 500 nits and everything above it is
-EDR: surfaces carry values brighter than SDR white and DCP raises the
-backlight zones to show them (1000 nits sustained, 1600 peak). "Brighter
-desktop" tools on macOS work by putting SDR content into that EDR range.
+    nits = 2^(e + 1) * (1 + f / 2^28)
 
-**The driver has the surface vocabulary for HDR but never uses it.**
+The firmware logs the level it reached in an `mNits` event (the driver clamps
+it to the device tree maximum before exposing it). Overriding the request and
+reading that event, **measured**:
 
-- `struct dcp_surface` has `xfer_func` and `colorspace`. RGB planes always get
-  `xfer_func = 13`, `colorspace = 12`. The values match CICP code points
-  (13 = sRGB, 12 = P3-D65), and `DCP_XFER_FUNC_HDR = 16` (CICP 16 = ST 2084 PQ)
-  and `DCP_COLORSPACE_BG_BT2020 = 9` are defined but unused for RGB.
-- `DRM_FORMAT_ABGR16161616F` maps to DCP's half-float format, the format
-  macOS uses for EDR surfaces. `ARGB2101010` is supported too.
-- The connector exposes no `HDR_OUTPUT_METADATA` or `Colorspace` property, so
-  no compositor can ask for HDR today.
-- Colour mode selection only ever picks an SDR-gamma mode
-  (`set_digital_out_mode ... eotf:0`).
-
-**Large parts of the swap record are unmapped.** `unk_110[48]`,
-`unk_190[312]`, `unk_2cc[20]`, `unk_2f3[45]`, `unk_320[319]`: about 740 bytes
-the driver zero-fills. EDR headroom, if it is passed per swap, is in there.
-
-**The firmware reports the level it reached.** DCP publishes property 15
-(nits x `Brightness_Scale`, 65536) after a backlight change. The driver clamps
-it to the device tree maximum before exposing it as `actual_brightness`, so a
-level above 500 is invisible through sysfs. The probe reads it unclamped.
-This is the measurement used below: no light meter needed.
-
-**The firmware's thermal input is a constant.** DCP asks the OS for
-`PMUS/Temperature` on mini-LED panels; the driver answers `3029` every time
-(`iomfb_template.c`, marked TODO). Whatever protection DCP derives from panel
-temperature is therefore blind under Linux. This matters once the backlight
-runs far above 500 nits for long periods. See "Safety".
-
-**Asahi upstream has not done this.** HDR is listed as not yet supported; the
-February 2026 progress report says the DCP driver needs cleanup before HDR is
-shippable. There is no published description of the EDR fields.
-
-## Open questions, in the order the probe tests them
-
-1. **Does `bl_value` above `0x7fffffff` raise the backlight?** If the field is
-   an unsigned scale that macOS simply never exceeds, this alone gives a
-   brighter SDR desktop and the fix is a longer table. Test: `bl_raw` at
-   `0x80000000`, `0x90000000`, ... and read property 15.
-2. **Does DCP decode a PQ surface?** Retag the desktop surface `xfer=16`,
-   `cspace=9`. An sRGB desktop read as PQ turns very bright and washed out if
-   the firmware honours it (sRGB mid-grey lands near 100 nits, white at the
-   panel peak). That is ugly but unambiguous, and property 15 says how far the
-   backlight went.
-3. **How is the SDR white level set in PQ mode?** Whether `bl_value` still
-   scales the picture or PQ is absolute decides how the brightness keys must
-   work.
-4. **Do half-float surfaces with values above 1.0 show as EDR** without any
-   further swap fields? Needs a compositor path; later.
-5. **Which unknown swap bytes carry headroom**, if 2 and 4 fail without them.
-
-## Safety
-
-- The probe's overrides expire 20 s after the last write and the driver's own
-  level is re-sent. A black or blinding screen recovers without input.
-- A swap the firmware rejects can crash DCP. The screen then freezes until
-  reboot; nothing is written to disk by the probe, so a reboot is a full
-  recovery. Save work before experimenting.
-- Apple's own limits for this panel are 1000 nits sustained full-screen and
-  1600 nits peak on part of the screen. Nothing here should hold the whole
-  panel above 1000 nits, and long runs above 500 should feed DCP a real
-  temperature (`temp` parameter) instead of the driver's constant.
-
-## Experiment log
-
-### 2026-11-12, j314s, firmware 13.5 (`docs/experiments/20261112-014059.log`)
-
-**`bl_value` is a logarithm of nits, and its range ends just above today's
-maximum.** Overriding the request and reading the firmware's own report
-(`actual_brightness`, valid below the 500 clamp):
-
-| asked (formula below) | firmware reported |
-| --- | --- |
-| 100 | 105 |
-| 200 | 210 |
-| 300 | 314 |
-| 400 | 420 |
-
-So `bl_value = log2(nits / 2) * 2^28` to within 5%: Q4.28 fixed point, not a
-DAC code. The lookup table in the driver is this curve sampled from traces.
-
-Above the table the firmware logs `BrightnessLCD.cpp:803: nitsToDBV: iDAC out
-of range`. Bisecting on that message: `0x81300000` is accepted,
-`0x81310000` is out of range. The driver's maximum today is `0x7f7d5f50`, so
-the plain backlight path has `2^((0x81300000 - 0x7f7d5f50) / 2^28)` = 1.076,
-under 8%, of headroom left. Out-of-range requests looked brighter than the
-normal maximum to the eye, but by how much is not measured yet; the firmware
-most likely clamps at the top of the range.
-
-Conclusion: question 1 is answered. A longer table buys a few percent. It is
-not the way to 1000 nits.
-
-**DCP decodes PQ surfaces on the built-in panel.** Retagging the unchanged
-sRGB desktop as `xfer_func = 16`:
-
-| tag | seen |
-| --- | --- |
-| PQ + BT.2020 | washed out, nearly all white, clearly brighter than SDR maximum |
-| PQ + native primaries | same |
-| HLG (18) + BT.2020 | no change |
-| PQ + BT.2020, backlight request at table top | washed out, bright |
-
-That is what an sRGB signal read as PQ should look like, so the firmware
-honours transfer function 16 with no further swap fields and no HDR colour
-mode. HLG is ignored or unsupported. No firmware errors were logged.
-
-Conclusion: question 2 is answered yes. The route to XDR brightness is PQ
-surfaces, with the compositor placing SDR white wherever the user wants it.
-
-Still open: how bright PQ white actually gets (peak and sustained), whether
-the backlight request still scales a PQ picture (question 3), and the thermal
-behaviour.
-
-### 2026-11-12, second session: unclamped firmware readback
-
-The probe now hooks the firmware's `mNits` events (level reached, iDAC code).
-
-| `bl_value` | firmware nits | iDAC |
+| `bl_value` | firmware-reported nits | iDAC |
 | --- | --- | --- |
 | `0x7a4d3c25` | 420.827 | 49168 |
 | `0x7f7d5f50` (driver's "500") | 503.835 | 59538 |
@@ -162,65 +45,66 @@ The probe now hooks the firmware's `mNits` events (level reached, iDAC code).
 | `0x90000000` | 1024.000 | 65405 |
 | `0xa0000000` | 1600.000 | 65405 |
 
-- The encoding is exact, not approximate: the top 4 bits are an exponent `e`
-  and the low 28 a fraction `f`, and `nits = 2^(e+1) * (1 + f)`. (The earlier
-  log2 reading was this curve seen through too few points.) Every row above
-  fits to three decimals.
-- The backlight DAC saturates at 65405, which is 550 nits. Above that the
-  firmware echoes the request (capped at 1600) but the iDAC code does not
-  move. **The SDR backlight ceiling of this panel is 550 nits**; the driver
-  stops at 504. That is 9% the driver could offer with no HDR at all.
-- `mNits` reports the backlight setting only. It does not change while PQ
-  surfaces are shown, so it cannot measure HDR output.
+The reported nits echo the request up to 1600, where the firmware caps it.
+From 550 nits up the iDAC code stops moving and the firmware logs
+`BrightnessLCD.cpp:803: nitsToDBV: iDAC out of range`. That message and that
+code do **not** describe what the panel does: **by eye**, the screen kept
+getting brighter at every step of 550, 640, 1024 and 1600, and the top looked
+like the panel's full range. Our first conclusion, that 550 nits is the
+ceiling, was wrong for that reason. The mini-LED backlight is probably driven
+by a separate local-dimming path that the DAC code does not describe; this was
+not investigated.
 
-**Hyprland renders PQ and the firmware accepts it.** A runtime rule
-(`bitdepth = 10, cm = "hdr", supports_hdr = 1, sdr_max_luminance = N`) switches
-the output to `XRGB2101010` with a PQ/BT.2020 picture; with the probe tagging
-those frames `xfer_func = 16, colorspace = 9` the firmware took about 70
-frames a second for 25 seconds with SDR white stepped from 203 to 1000 nits,
-logged no errors, and went back to SDR cleanly. `bin/xdr-hdr-test` repeats
-this.
+What was not measured: actual luminance at any level, power draw, panel
+temperature, or whether 1600 is held or throttled.
 
-### 2026-11-12, third session: what the PQ picture looks like
+## What the driver would need
 
-Hyprland rendering PQ/BT.2020 at 10 bit, frames tagged `xfer_func = 16`,
-desktop (SDR) white placed at the given luminance, as seen by eye:
+- Replace the nits-to-`bl_value` tables with the float encoding above (the
+  table is that curve, sampled).
+- Let `apple,max-brightness` and `props.max_brightness` go above 500 for
+  mini-LED panels (`dcp_backlight.c` caps at 509; `dcp.c` caps J313 at its own
+  value).
+- Decide a safe default ceiling. Apple rates this panel for 1000 nits sustained
+  over the whole screen and 1600 for highlights.
+- Answer the firmware's temperature query properly. DCP asks the OS for
+  `PMUS/Temperature` on mini-LED panels and `dcpep_cb_get_uint_prop` answers
+  `3029` every time (a TODO in the source). Whatever thermal protection the
+  firmware derives from it is blind under Linux, which matters at high levels.
 
-| SDR white | PQ code of white | seen |
-| --- | --- | --- |
-| 5 nits | 0.27 | washed out |
-| 10, 20, 30 | 0.33 - 0.43 | mostly white, slight variation |
-| 50 | 0.44 | washed out, bright |
-| 100 - 1000 | 0.51 - 0.75 | ~99% white, only pure black still visible |
+## HDR: what was tried
 
-No step looked normal. Black stays black, but codes from roughly 0.3 up are
-already at or near white. So the earlier "PQ is honoured" conclusion was too
-strong: transfer function 16 selects *a* strongly expanding decode, and it
-does raise the panel well above SDR white, but with only the surface tag set
-the result is not a usable PQ picture. Either the firmware decodes PQ and
-then normalises by a reference white that is unset (zero or minimal) in the
-swap, or 16 is not plain PQ on this firmware. The unmapped swap bytes are
-the place to look for the first; a calibrated grey ramp instead of
-descriptions by eye is the way to tell the two apart.
+`struct dcp_surface` carries `xfer_func` and `colorspace`. The driver sends 13
+(sRGB) and 12 (native) for RGB surfaces and defines 16 (CICP code for ST 2084
+PQ) and 9 (BT.2020) without using them. The connector has no `Colorspace` or
+`HDR_OUTPUT_METADATA` property.
 
-Status: HDR / more than 550 nits is **not solved**.
+Hyprland 0.56 can render PQ/BT.2020 at 10 bits on this panel (a monitor rule
+with `cm = "hdr"`, `bitdepth = 10`, `supports_hdr = 1`; the output format
+becomes `XRGB2101010`). With the probe module re-tagging those frames
+`xfer_func = 16, colorspace = 9`, the firmware accepts them without errors, but
+the picture is not usable, **by eye**:
 
-### What works today
+| desktop white placed at | seen |
+| --- | --- |
+| 5 nits | washed out |
+| 10 to 30 nits | mostly white, slight variation |
+| 50 nits | washed out, bright |
+| 100 to 1000 nits | about 99% white, only pure black visible |
 
-`bin/xdr-boost on` pins the backlight request at `0x81300000`. The firmware
-confirms 550.000 nits (iDAC 65404) against 503.835 at the driver's maximum,
-and holds it. This is the full range of the SDR backlight.
+No step looked normal. Tag 16 clearly changes the firmware's decode and makes
+the panel brighter, but not into a correct PQ picture. Possible causes, not
+separated: the firmware normalises by a reference white that macOS sets and
+Linux leaves at zero (about 740 bytes of the swap record are unmapped, and a
+per-swap headroom field could be among them); or tag 16 is not plain PQ on
+this firmware. HLG (tag 18) changed nothing. Next step would be a calibrated
+grey ramp and a systematic search of the unmapped swap bytes.
 
-### 2026-11-12, fourth session: the backlight does go past 550
+## Method
 
-Ladder repeated with 5 s per step: 504, 550, 640, 1024, 1600 nits requested.
-By eye every step, or at least three of the four, was brighter than the one
-before, and the top looked like the panel's full range. The iDAC code in the
-`mNits` event stays at 65405 from 550 up and the firmware logs `iDAC out of
-range` for each, so **that code and that message do not describe what the
-backlight does above 550**; the earlier "550 is the ceiling" conclusion was
-wrong. The firmware caps the request itself at 1600.
-
-Not measured with an instrument. `bin/xdr-boost` uses this, limited to 1000
-nits unless `XDR_BOOST_UNSAFE=1`.
-
+`probe/apple_xdr_probe.c` hooks `dcp_push` with a kprobe and edits the swap
+request in place, with offsets generated from the running kernel's BTF
+(`gen-layout.sh`), so it needs no driver rebuild and refuses other firmware
+versions. It also hooks the firmware's property and `mNits` callbacks to read
+back what the firmware reports. Overrides expire on their own. The raw logs of
+the first experiment are in `docs/experiments/`.
