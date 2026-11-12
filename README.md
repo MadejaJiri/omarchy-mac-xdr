@@ -6,8 +6,9 @@ kernel. Linux stops at about 500 nits on these panels; this raises the ceiling
 to the panel's 1600-nit peak, lets you choose the range the brightness keys
 cover, and lets the lowest step switch the backlight off like macOS does.
 
-What it does **not** do: HDR content does not work. See
-[docs/research.md](docs/research.md) for what was tried and where it stands.
+HDR video looks right with the extended range on, out of the box and
+uncalibrated (see Status). A true HDR output pipeline is not part of this; see
+[docs/research.md](docs/research.md) for what was tried.
 
 <p align="center"><img src="docs/app.png" width="360" alt="The XDR Screen Control window"></p>
 
@@ -19,7 +20,12 @@ What it does **not** do: HDR content does not work. See
 - **Brightness above 500 nits works** and survives reboots. Levels were judged
   by eye; nothing was measured with a light meter. The number you choose is the
   request sent to the firmware, not a measured luminance.
-- **HDR playback does not work** yet.
+- **HDR video looks right** to the author's eyes with the extended range on,
+  with no extra setup. This is not calibrated and was not measured. The
+  compositor stays in SDR mode (Hyprland's default on Omarchy), so what you see
+  is HDR video tone-mapped by the player onto a much brighter backlight, not an
+  HDR signal sent to the panel. Sending PQ to the firmware was tried and does
+  not give a usable picture (research notes).
 
 ## Install
 

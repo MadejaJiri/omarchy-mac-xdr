@@ -17,8 +17,11 @@ used), **untested** means exactly that.
    when the request is larger, up to the top of what the firmware accepts.
 2. The request field is a small float, not a DAC code, so extending the range
    is arithmetic, not new reverse engineering (**measured**, below).
-3. HDR is a different problem and is **not solved**: surfaces tagged as PQ are
-   decoded differently by the firmware, but the picture is not usable.
+3. With the extended range on, HDR video **looks right by eye** (uncalibrated)
+   with no further setup. The compositor stays in SDR; the player tone-maps
+   onto the brighter backlight. A real HDR output path (PQ surfaces) is **not
+   solved**: the firmware decodes PQ-tagged surfaces differently, but the
+   picture is not usable.
 
 ## The brightness request
 
@@ -72,7 +75,10 @@ temperature, or whether 1600 is held or throttled.
   `3029` every time (a TODO in the source). Whatever thermal protection the
   firmware derives from it is blind under Linux, which matters at high levels.
 
-## HDR: what was tried
+## HDR output (PQ surfaces): what was tried
+
+This is about sending an HDR signal to the panel. It is separate from playing
+HDR video on the extended-range backlight, which works visually (see Summary).
 
 `struct dcp_surface` carries `xfer_func` and `colorspace`. The driver sends 13
 (sRGB) and 12 (native) for RGB surfaces and defines 16 (CICP code for ST 2084
