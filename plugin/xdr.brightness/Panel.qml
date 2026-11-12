@@ -16,14 +16,14 @@ Panel {
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
-  readonly property string cli: Quickshell.env("HOME") + "/.local/bin/omarchy-xdr"
+  readonly property string cli: "omarchy-xdr"
 
   property bool xdrLoaded: false
   property bool xdrOn: false
   property bool xdrActive: false
   property bool autostart: false
   property int maxNits: 1000
-  property int minNits: 2
+  property int minNits: 0
   property int maxLimit: 1600
   property int percent: 0
   property int nits: 0
@@ -61,7 +61,7 @@ Panel {
     root.xdrActive = s.active === 1 || s.active === true
     root.autostart = s.autostart === 1 || s.autostart === true
     root.maxNits = Math.max(500, Math.min(1600, Number(s.max) || 1000))
-    root.minNits = Math.max(2, Math.min(100, Number(s.min) || 2))
+    root.minNits = Math.max(0, Math.min(50, Number(s.min) || 0))
     root.maxLimit = Math.max(500, Math.min(1600, Number(s.maxLimit) || 1600))
     root.percent = Math.max(0, Math.min(100, Number(s.percent) || 0))
     root.nits = Math.max(0, Number(s.nits) || 0)
@@ -72,7 +72,7 @@ Panel {
     if (!root.xdrLoaded) return "Kernel module not loaded"
     if (!root.xdrOn) return "Off: standard range"
     if (root.nits > 0) return root.percent + "% is about " + root.nits + " nits"
-    return root.minNits + " to " + root.maxNits + " nits"
+    return (root.minNits === 0 ? "off" : root.minNits) + " to " + root.maxNits + " nits"
   }
 
   Component.onCompleted: refresh()
@@ -105,7 +105,7 @@ Panel {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: root.xdrOn && root.xdrLoaded ? "󰃠" : "󰃞"
+    text: "󰔎"
     onPressed: function(b) { root.toggle() }
   }
 
@@ -144,7 +144,7 @@ Panel {
 
             Text {
               textFormat: Text.PlainText
-              text: "XDR Brightness"
+              text: "XDR Screen Control"
               color: root.bar.foreground
               font.family: root.bar.fontFamily
               font.pixelSize: Style.font.title
@@ -254,7 +254,7 @@ Panel {
             Text {
               id: minValue
               textFormat: Text.PlainText
-              text: Math.round(minSlider.dragging ? minSlider.liveValue : root.minNits) + " nits"
+              text: Math.round(minSlider.dragging ? minSlider.liveValue : root.minNits) === 0 ? "off" : Math.round(minSlider.dragging ? minSlider.liveValue : root.minNits) + " nits"
               color: Qt.darker(root.bar.foreground, 1.4)
               font.family: root.bar.fontFamily
               font.pixelSize: Style.font.caption
@@ -275,7 +275,7 @@ Panel {
               anchors.fill: parent
               anchors.leftMargin: Style.space(6)
               anchors.rightMargin: Style.space(6)
-              minimum: 2
+              minimum: 0
               maximum: 50
               step: 1
               integer: true

@@ -7,3 +7,7 @@ probe/.*.cmd
 probe/Module.symvers
 probe/modules.order
 probe/.tmp_versions/
+/build/
+/pkgbuild/pkg/
+/pkgbuild/src/
+*.pkg.tar.*

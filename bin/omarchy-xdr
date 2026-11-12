@@ -7,9 +7,11 @@
 #   omarchy-xdr status [--json]
 #   omarchy-xdr enable | disable | toggle
 #   omarchy-xdr max <nits>        500..1600 (the panel's peak)
-#   omarchy-xdr min <nits>        2..100 (2 is the firmware's lowest level)
+#   omarchy-xdr min <nits>        0..50; 0: the lowest brightness step turns the
+#                                 backlight off, as on macOS
 #   omarchy-xdr apply             apply the saved preference (run at login)
 #   omarchy-xdr autostart on|off  apply the saved preference at every login
+#   omarchy-xdr bar on|off        show or hide the top-bar widget
 #
 # Preferences are saved in ~/.config/omarchy-xdr/config.
 set -euo pipefail
@@ -21,10 +23,9 @@ unit=omarchy-xdr.service
 bl=/sys/class/backlight/apple-panel-bl
 
 MAX_LIMIT=1600
-STOCK_MAX=504   # what the stock driver reaches at 100%
-STOCK_MIN=2
+plugin_id=xdr.brightness
 
-ENABLED=0 MAX=1000 MIN=2
+ENABLED=0 MAX=1000 MIN=0
 [[ -r $conf ]] && while IFS='=' read -r k v; do
   case $k in
     ENABLED) [[ $v =~ ^[01]$ ]] && ENABLED=$v ;;
@@ -47,8 +48,15 @@ import sys
 v = int(sys.argv[1], 0); print(round(2 ** ((v >> 28) + 1) * (1 + (v & 0xfffffff) / 2 ** 28)))" "$1"; }
 
 apply() {
-  loaded || die "kernel module not loaded (run install.sh, or bin/xdr-probe load)"
+  loaded || die "kernel module not loaded (sudo systemctl start omarchy-xdr-probe, or bin/xdr-probe load)"
   if (( ENABLED )); then
+    # Minimum 0 keeps the bottom of the scale at the firmware's lowest level
+    # (2 nits) and turns the backlight off at the lowest step instead.
+    if [[ -w $params/range_zero ]]; then
+      if (( MIN == 0 )); then printf 1 > $params/range_zero; else printf 0 > $params/range_zero; fi
+    elif (( MIN == 0 )); then
+      echo "omarchy-xdr: the loaded kernel module is older than this command; the lowest step will be 2 nits until it is reloaded" >&2
+    fi
     printf '%s' "$(encode "$MIN")" > $params/range_min
     printf '%s' "$(encode "$MAX")" > $params/range_max
     printf 1 > $params/range_on
@@ -57,25 +65,62 @@ apply() {
   fi
 }
 
+bar_source() {
+  local c
+  for c in "${XDR_PLUGIN_SRC:-}" /usr/share/xdr-screen-control/plugin/$plugin_id "$(dirname "$(readlink -f "$0")")/../plugin/$plugin_id"; do
+    [[ -n $c && -f $c/manifest.json ]] && { readlink -f "$c"; return; }
+  done
+  return 1
+}
+
+bar_state() {
+  command -v omarchy >/dev/null || { echo 0; return; }
+  omarchy plugin list --json 2>/dev/null | python3 -c "
+import json, sys
+try: d = json.load(sys.stdin)
+except Exception: d = []
+print(1 if any(p.get('id') == '$plugin_id' and p.get('enabled') for p in d) else 0)" 2>/dev/null || echo 0
+}
+
+bar() {
+  command -v omarchy >/dev/null || die "omarchy command not found"
+  case ${1:-} in
+    on)
+      local src dest=${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugins/$plugin_id
+      src=$(bar_source) || die "widget files not found"
+      # A link, so a package update brings the new widget along.
+      mkdir -p "$(dirname "$dest")"
+      [[ -L $dest || ! -e $dest ]] || rm -rf "$dest"
+      ln -sfn "$src" "$dest"
+      omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
+      omarchy plugin enable $plugin_id --after omarchy.audio >/dev/null
+      ;;
+    off) omarchy plugin disable $plugin_id >/dev/null ;;
+    *) die "bar on|off" ;;
+  esac
+}
+
 autostart_state() { systemctl --user is-enabled $unit >/dev/null 2>&1 && echo 1 || echo 0; }
 
 status() {
-  local is_loaded=0 active=0 sent="" nits=0 pct=0
+  local is_loaded=0 active=0 sent="" nits=0 pct=0 barstate
   loaded && is_loaded=1
   if (( is_loaded )); then
     [[ $(cat $params/range_on) == 1 ]] && active=1
     sent=$(sed -E 's/.*bl_sent=(0x[0-9a-f]+).*/\1/' $params/status)
     if (( active )) && [[ $sent != 0x00000000 ]]; then nits=$(decode "$sent"); fi
   fi
+  barstate=$(bar_state)
   [[ -r $bl/brightness ]] && pct=$(( $(cat $bl/brightness) * 100 / $(cat $bl/max_brightness) ))
   if [[ ${1:-} == --json ]]; then
-    printf '{"loaded":%s,"enabled":%s,"active":%s,"max":%s,"min":%s,"autostart":%s,"percent":%s,"nits":%s,"maxLimit":%s}\n' \
-      $is_loaded "$ENABLED" $active "$MAX" "$MIN" "$(autostart_state)" $pct $nits $MAX_LIMIT
+    printf '{"loaded":%s,"enabled":%s,"active":%s,"max":%s,"min":%s,"autostart":%s,"percent":%s,"nits":%s,"maxLimit":%s,"bar":%s}\n' \
+      $is_loaded "$ENABLED" $active "$MAX" "$MIN" "$(autostart_state)" $pct $nits $MAX_LIMIT "$barstate"
   else
     (( is_loaded )) || echo "kernel module: not loaded"
     echo "extended range: $( (( ENABLED )) && echo on || echo off)$( (( ENABLED && !active )) && echo ' (saved, not applied)')"
-    echo "range: $MIN .. $MAX nits"
+    echo "range: $( (( MIN )) && echo "$MIN nits" || echo "off") .. $MAX nits"
     (( active && nits )) && echo "now: $pct% = about $nits nits requested"
+    echo "top-bar icon: $( (( barstate )) && echo on || echo off)"
     echo "apply at login: $( (( $(autostart_state) )) && echo on || echo off)"
   fi
 }
@@ -91,7 +136,7 @@ case ${1:-status} in
     n=$(num "${2:-}"); (( n >= 500 && n <= MAX_LIMIT )) || die "max must be 500..$MAX_LIMIT"
     MAX=$n; save; if (( ENABLED )); then apply; fi ;;
   min)
-    n=$(num "${2:-}"); (( n >= 2 && n <= 100 )) || die "min must be 2..100"
+    n=$(num "${2:-}"); (( n <= 50 )) || die "min must be 0..50"
     MIN=$n; save; if (( ENABLED )); then apply; fi ;;
   apply)
     # At login the module's parameters may not be writable for a moment yet.
@@ -103,5 +148,6 @@ case ${1:-status} in
       off) systemctl --user disable $unit ;;
       *) die "autostart on|off" ;;
     esac ;;
-  *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+  bar) bar "${2:-}" ;;
+  *) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

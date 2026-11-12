@@ -4,7 +4,7 @@
 # omarchy-xdr-probe.service at boot.
 set -euo pipefail
 
-src=/usr/local/src/omarchy-xdr
+src=/usr/src/xdr-screen-control
 mod=apple_xdr_probe
 build=/var/cache/omarchy-xdr/$(uname -r)
 params=/sys/module/$mod/parameters
@@ -41,4 +41,4 @@ for k in pr_publish:trampoline_pr_publish get_uint:trampoline_get_uint_prop \
 done
 
 insmod "$build/$mod.ko" panel="${node##*@}.dcp" "${args[@]}"
-chgrp "$group" "$params"/{range_on,range_min,range_max,bl_raw,bl_every,xfer,cspace,temp,surf_mask,poke,hold_ms,reset}
+chgrp "$group" "$params"/{range_on,range_zero,range_min,range_max,bl_raw,bl_every,xfer,cspace,temp,surf_mask,poke,hold_ms,reset}

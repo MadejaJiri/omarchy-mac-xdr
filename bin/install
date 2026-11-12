@@ -1,0 +1,32 @@
+#!/bin/sh
+# Build the package and install it with pacman: the app lands in the launcher,
+# the kernel module is built and loaded now and at every boot.
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+
+# An earlier version was installed by script into your home and /usr/local.
+# Remove it first so it cannot shadow the package, and carry the choices over.
+legacy_unit="$HOME/.config/systemd/user/omarchy-xdr.service"
+login=0
+bar=0
+if [ -e "$legacy_unit" ]; then
+  systemctl --user is-enabled omarchy-xdr.service >/dev/null 2>&1 && login=1
+  systemctl --user disable omarchy-xdr.service >/dev/null 2>&1 || true
+  rm -f "$legacy_unit"
+  systemctl --user daemon-reload
+fi
+[ "$login" = 1 ] || { systemctl --user is-enabled omarchy-xdr.service >/dev/null 2>&1 && login=1 || true; }
+if command -v omarchy >/dev/null 2>&1 && omarchy plugin list --json 2>/dev/null | grep -q '"id": *"xdr.brightness"[^}]*"enabled": *true'; then bar=1; fi
+rm -f "$HOME/.local/bin/omarchy-xdr"
+if [ -e /etc/systemd/system/omarchy-xdr-probe.service ] && ! pacman -Qo /etc/systemd/system/omarchy-xdr-probe.service >/dev/null 2>&1; then
+  sudo sh -c 'systemctl disable --now omarchy-xdr-probe.service; rm -f /etc/systemd/system/omarchy-xdr-probe.service; rm -rf /usr/local/lib/omarchy-xdr /usr/local/src/omarchy-xdr /var/cache/omarchy-xdr; rmmod apple_xdr_probe 2>/dev/null; systemctl daemon-reload' || true
+fi
+
+"$ROOT/bin/build"
+( cd "$ROOT/pkgbuild" && makepkg -fsi "$@" )
+
+[ "$login" = 1 ] && systemctl --user enable omarchy-xdr.service
+[ "$bar" = 1 ] && omarchy-xdr bar on
+omarchy-xdr apply
+omarchy-xdr status

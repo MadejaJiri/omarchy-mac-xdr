@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <clipPath id="sun"><polygon points="0,0 60,0 0,60"/></clipPath>
+    <clipPath id="moon"><polygon points="64,64 64,4 4,64"/></clipPath>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#FFD60A"/>
+  <g stroke="#17171a" stroke-width="3.2" stroke-linecap="round" fill="#17171a">
+    <g clip-path="url(#sun)">
+      <circle cx="32" cy="32" r="9"/>
+      <path fill="none" d="M32 11v6M32 47v6M11 32h6M47 32h6M17.2 17.2l4.2 4.2M42.6 42.6l4.2 4.2M17.2 46.8l4.2-4.2M42.6 21.4l4.2-4.2"/>
+    </g>
+    <g clip-path="url(#moon)">
+      <circle cx="32" cy="32" r="12" stroke="none"/>
+      <circle cx="38" cy="26" r="11" fill="#FFD60A" stroke="none"/>
+    </g>
+  </g>
+  <line x1="14" y1="50" x2="50" y2="14" stroke="#17171a" stroke-width="3.2" stroke-linecap="round"/>
+</svg>

@@ -93,6 +93,8 @@ static u32 last_bl_sent, last_bl_driver;
  * hold_ms; this is the mode meant to stay on.
  */
 static unsigned int range_on;
+/* 1: the lowest step the brightness keys reach (1%) switches the backlight off. */
+static unsigned int range_zero;
 static u32 range_min, range_max = 0x7f7d5f50;
 static struct backlight_device *range_bd;
 
@@ -173,10 +175,20 @@ static int push_pre(struct kprobe *kp, struct pt_regs *regs)
 		u32 max = range_bd->props.max_brightness;
 		u32 b = min_t(u32, range_bd->props.brightness, max);
 		u32 lo = min(range_min, range_max);
-		u32 v = lo + (max ? div_u64((u64)(range_max - lo) * b, max) : 0);
+		u32 floor_b = range_zero ? DIV_ROUND_UP(max, 100) : 0;
 
-		put_unaligned_le32(v, req + XDR_BL_VALUE_OFF);
-		last_bl_sent = v;
+		if (range_zero && b <= floor_b) {
+			/* What the driver itself sends when it powers the panel down. */
+			put_unaligned_le32(0, req + XDR_BL_VALUE_OFF);
+			req[XDR_BL_POWER_OFF] = 0;
+			last_bl_sent = 0;
+		} else {
+			u32 span = max > floor_b ? max - floor_b : 0;
+			u32 v = lo + (span ? div_u64((u64)(range_max - lo) * (b - floor_b), span) : 0);
+
+			put_unaligned_le32(v, req + XDR_BL_VALUE_OFF);
+			last_bl_sent = v;
+		}
 		swaps_patched++;
 	}
 	if (!armed)
@@ -435,6 +447,8 @@ static const struct kernel_param_ops range_ops = {
 module_param_cb(range_on, &range_ops, &range_on, 0664);
 MODULE_PARM_DESC(range_on, "1: map the backlight scale onto [range_min, range_max]");
 module_param_cb(range_min, &range_ops, &range_min, 0664);
+module_param_cb(range_zero, &range_ops, &range_zero, 0664);
+MODULE_PARM_DESC(range_zero, "1: the lowest brightness step turns the backlight off");
 module_param_cb(range_max, &range_ops, &range_max, 0664);
 MODULE_PARM_DESC(range_max, "encoded request sent at 100% brightness");
 

@@ -1,0 +1,18 @@
+post_install() {
+  systemctl daemon-reload
+  systemctl enable --now omarchy-xdr-probe.service || echo "xdr-screen-control: the kernel module did not load; see: journalctl -u omarchy-xdr-probe"
+}
+
+post_upgrade() {
+  systemctl daemon-reload
+  # Stopping unloads the old module; starting builds and loads the new one.
+  systemctl restart omarchy-xdr-probe.service || echo "xdr-screen-control: the kernel module did not load; see: journalctl -u omarchy-xdr-probe"
+}
+
+pre_remove() {
+  systemctl disable --now omarchy-xdr-probe.service || true
+}
+
+post_remove() {
+  systemctl daemon-reload
+}

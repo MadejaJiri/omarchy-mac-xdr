@@ -13,20 +13,22 @@ judged by eye, not measured with a meter. HDR content is not working yet.
 ## Install
 
 ```bash
-./install.sh
+bin/install
 ```
 
-Asks for sudo once. It installs a kernel module that is built and loaded at
-every boot (`omarchy-xdr-probe.service`), the `omarchy-xdr` command, and the
-**XDR Brightness** widget in the Omarchy bar. `./install.sh --uninstall`
-removes all of it.
+Builds an Arch package and installs it with pacman (asks for sudo). You get
+**XDR Screen Control** in the app launcher, the `omarchy-xdr` command, and a
+kernel module that is built for the running kernel and loaded at every boot
+(`omarchy-xdr-probe.service`). `sudo pacman -R xdr-screen-control` removes it.
 
-In the widget: the switch turns the extended range on or off, **Maximum** is
-what 100% brightness means (500 to 1600 nits), **Minimum** is the bottom of
-the scale (2 nits is the firmware's lowest level), and **Apply at login**
-restores your choice after a reboot. The brightness keys and slider keep
-working as before, now across that range. The same from a terminal:
-`omarchy-xdr enable | disable | max 1200 | min 2 | autostart on | status`.
+The app: the switch at the top turns the extended range on or off.
+**Maximum** is what 100% brightness means (500 to 1600 nits). **Minimum** is
+the bottom of the scale: at *Off* the lowest brightness step switches the
+backlight off, as on macOS; otherwise it is that many nits. **Show icon in the
+top bar** adds or removes the bar widget, and **Apply at login** restores your
+choice after a reboot. The brightness keys and slider keep working as before,
+now across the range you chose. The same from a terminal:
+`omarchy-xdr enable | disable | max 1200 | min 0 | bar on | autostart on | status`.
 
 Apple holds this panel to 1000 nits sustained full-screen and uses 1600 only
 for HDR highlights, and under Linux the firmware does not get a real panel
@@ -47,7 +49,9 @@ to be found out. This repository currently holds the tool for finding out.
 | `bin/xdr-probe` | Builds, loads and drives the module. |
 | `bin/xdr-experiment` | Runs the first two experiments step by step and logs what the firmware reported and what you saw. |
 | `bin/omarchy-xdr` | Saved brightness-range preference and the command that applies it. |
-| `plugin/xdr.brightness/` | The Omarchy bar widget and settings panel. |
+| `src/`, `xdr-screen-control.pro` | The XDR Screen Control app (Qt Quick). |
+| `plugin/xdr.brightness/` | The top-bar widget. |
+| `pkgbuild/` | Arch package: app, command, module sources, services, launcher entry. |
 | `system/` | Boot-time module loader and systemd units. |
 | `bin/xdr-hdr-test` | Hyprland HDR output with PQ-tagged frames at chosen SDR white levels. |
 | `docs/research.md` | Findings so far, open questions, experiment log. |
@@ -98,4 +102,5 @@ temperature to the firmware; see the Safety section of the research notes.
 
 ## Licence
 
-GPL-2.0-only, like the driver it hooks.
+The kernel module is GPL-2.0-only, like the driver it hooks; the app and
+scripts are MIT. See `LICENSE`.

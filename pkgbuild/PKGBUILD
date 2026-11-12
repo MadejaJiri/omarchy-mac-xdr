@@ -1,0 +1,39 @@
+pkgname=xdr-screen-control
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Full-range brightness for the built-in Apple mini-LED display, with a settings app and top-bar icon'
+arch=('aarch64')
+license=('MIT' 'GPL-2.0-only')
+depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'brightnessctl' 'python'
+         'linux-aurora-headers' 'pahole' 'gcc' 'make')
+makedepends=('gcc' 'make')
+install=xdr-screen-control.install
+source=()
+sha256sums=()
+
+build() {
+  cd "$startdir/.."
+  ./bin/build
+}
+
+package() {
+  cd "$startdir/.."
+  install -Dm755 build/xdr-screen-control "$pkgdir/usr/bin/xdr-screen-control"
+  install -Dm755 bin/omarchy-xdr "$pkgdir/usr/bin/omarchy-xdr"
+
+  # The kernel module is built on the machine, for the running kernel, at boot.
+  install -Dm644 probe/apple_xdr_probe.c "$pkgdir/usr/src/xdr-screen-control/apple_xdr_probe.c"
+  install -Dm644 probe/Makefile "$pkgdir/usr/src/xdr-screen-control/Makefile"
+  install -Dm755 probe/gen-layout.sh "$pkgdir/usr/src/xdr-screen-control/gen-layout.sh"
+  install -Dm755 system/omarchy-xdr-load "$pkgdir/usr/lib/xdr-screen-control/load"
+  install -Dm644 system/omarchy-xdr-probe.service "$pkgdir/usr/lib/systemd/system/omarchy-xdr-probe.service"
+  install -Dm644 system/omarchy-xdr.service "$pkgdir/usr/lib/systemd/user/omarchy-xdr.service"
+
+  for f in plugin/xdr.brightness/*; do
+    install -Dm644 "$f" "$pkgdir/usr/share/xdr-screen-control/plugin/xdr.brightness/$(basename "$f")"
+  done
+
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 "$startdir/xdr-screen-control.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/xdr-screen-control.svg"
+  install -Dm644 "$startdir/xdr-screen-control.desktop" "$pkgdir/usr/share/applications/xdr-screen-control.desktop"
+}

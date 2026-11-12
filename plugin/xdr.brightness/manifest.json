@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "xdr.brightness",
-  "name": "XDR Brightness",
+  "name": "XDR Screen Control",
   "version": "0.1.0",
   "author": "omarchy-mac-xdr",
   "description": "Extended brightness range for the built-in Apple mini-LED display",
@@ -12,7 +12,7 @@
     "barWidget": "Panel.qml"
   },
   "barWidget": {
-    "displayName": "XDR Brightness",
+    "displayName": "XDR Screen Control",
     "description": "Extended brightness range for the built-in display",
     "category": "System",
     "allowMultiple": false

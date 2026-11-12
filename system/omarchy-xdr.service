@@ -3,7 +3,7 @@ Description=Apply the saved XDR brightness range
 
 [Service]
 Type=oneshot
-ExecStart=%h/.local/bin/omarchy-xdr apply
+ExecStart=/usr/bin/omarchy-xdr apply
 
 [Install]
 WantedBy=default.target

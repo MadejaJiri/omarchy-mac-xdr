@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=XDR Screen Control
+Comment=Brightness range for the built-in Apple display, up to 1600 nits
+Exec=xdr-screen-control
+Icon=xdr-screen-control
+Terminal=false
+Categories=Settings;HardwareSettings;
+Keywords=brightness;hdr;xdr;display;backlight;nits;
+StartupWMClass=xdr-screen-control

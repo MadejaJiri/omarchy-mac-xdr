@@ -6,7 +6,7 @@ ConditionPathIsDirectory=/proc/device-tree/soc
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/local/lib/omarchy-xdr/load
+ExecStart=/usr/lib/xdr-screen-control/load
 ExecStop=/usr/bin/rmmod apple_xdr_probe
 
 [Install]
