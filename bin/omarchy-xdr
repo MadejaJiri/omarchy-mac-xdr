@@ -12,6 +12,8 @@
 #   omarchy-xdr apply             apply the saved preference (run at login)
 #   omarchy-xdr autostart on|off  apply the saved preference at every login
 #   omarchy-xdr bar on|off        show or hide the top-bar widget
+#   omarchy-xdr battery on|off    on: no extended maximum while unplugged
+#                                 (the standard maximum applies; the minimum still does)
 #
 # Preferences are saved in ~/.config/omarchy-xdr/config.
 set -euo pipefail
@@ -20,23 +22,27 @@ params=/sys/module/apple_xdr_probe/parameters
 conf_dir=${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-xdr
 conf=$conf_dir/config
 unit=omarchy-xdr.service
+watch_unit=omarchy-xdr-watch.service
 bl=/sys/class/backlight/apple-panel-bl
 
 MAX_LIMIT=1600
 plugin_id=xdr.brightness
+# What the stock driver sends at 100%: 503.8 nits.
+STOCK_MAX_RAW=$((0x7f7d5f50))
 
-ENABLED=0 MAX=1000 MIN=0
+ENABLED=0 MAX=1000 MIN=0 BATTERY_LIMIT=0
 [[ -r $conf ]] && while IFS='=' read -r k v; do
   case $k in
     ENABLED) [[ $v =~ ^[01]$ ]] && ENABLED=$v ;;
     MAX) [[ $v =~ ^[0-9]+$ ]] && MAX=$v ;;
     MIN) [[ $v =~ ^[0-9]+$ ]] && MIN=$v ;;
+    BATTERY_LIMIT) [[ $v =~ ^[01]$ ]] && BATTERY_LIMIT=$v ;;
   esac
 done < "$conf"
 
 die() { echo "omarchy-xdr: $*" >&2; exit 1; }
 loaded() { [[ -w $params/range_on ]]; }
-save() { mkdir -p "$conf_dir"; printf 'ENABLED=%s\nMAX=%s\nMIN=%s\n' "$ENABLED" "$MAX" "$MIN" > "$conf"; }
+save() { mkdir -p "$conf_dir"; printf 'ENABLED=%s\nMAX=%s\nMIN=%s\nBATTERY_LIMIT=%s\n' "$ENABLED" "$MAX" "$MIN" "$BATTERY_LIMIT" > "$conf"; }
 
 # The firmware's request format is a 4.28 float: nits = 2^(e+1) * (1 + f).
 encode() { python3 -c "
@@ -46,6 +52,26 @@ print((e << 28) | int((n / 2 ** (e + 1) - 1) * 2 ** 28))" "$1"; }
 decode() { python3 -c "
 import sys
 v = int(sys.argv[1], 0); print(round(2 ** ((v >> 28) + 1) * (1 + (v & 0xfffffff) / 2 ** 28)))" "$1"; }
+
+# 1 when running on battery: a mains supply exists and none of them is online.
+# A machine with no mains supply counts as plugged in. XDR_FAKE_BATTERY_FILE
+# is for tests.
+on_battery() {
+  if [[ -n ${XDR_FAKE_BATTERY_FILE:-} ]]; then
+    [[ $(cat "$XDR_FAKE_BATTERY_FILE") == 1 ]] && echo 1 || echo 0
+    return
+  fi
+  local ps found=0 online=0
+  for ps in /sys/class/power_supply/*; do
+    [[ $(cat "$ps/type" 2>/dev/null) == Mains ]] || continue
+    found=1
+    [[ $(cat "$ps/online" 2>/dev/null) == 1 ]] && online=1
+  done
+  (( found && !online )) && echo 1 || echo 0
+}
+
+# The extended maximum is off while unplugged, if the user asked for that.
+limited() { (( BATTERY_LIMIT )) && [[ $(on_battery) == 1 ]]; }
 
 apply() {
   loaded || die "kernel module not loaded (sudo systemctl start omarchy-xdr-probe, or bin/xdr-probe load)"
@@ -58,7 +84,8 @@ apply() {
       echo "omarchy-xdr: the loaded kernel module is older than this command; the lowest step will be 2 nits until it is reloaded" >&2
     fi
     printf '%s' "$(encode "$MIN")" > $params/range_min
-    printf '%s' "$(encode "$MAX")" > $params/range_max
+    if limited; then printf '%s' "$STOCK_MAX_RAW" > $params/range_max
+    else printf '%s' "$(encode "$MAX")" > $params/range_max; fi
     printf 1 > $params/range_on
   else
     printf 0 > $params/range_on
@@ -103,7 +130,7 @@ bar() {
 autostart_state() { systemctl --user is-enabled $unit >/dev/null 2>&1 && echo 1 || echo 0; }
 
 status() {
-  local is_loaded=0 active=0 sent="" nits=0 pct=0 barstate
+  local is_loaded=0 active=0 sent="" nits=0 pct=0 barstate onbat
   loaded && is_loaded=1
   if (( is_loaded )); then
     [[ $(cat $params/range_on) == 1 ]] && active=1
@@ -111,15 +138,17 @@ status() {
     if (( active )) && [[ $sent != 0x00000000 ]]; then nits=$(decode "$sent"); fi
   fi
   barstate=$(bar_state)
+  onbat=$(on_battery)
   [[ -r $bl/brightness ]] && pct=$(( $(cat $bl/brightness) * 100 / $(cat $bl/max_brightness) ))
   if [[ ${1:-} == --json ]]; then
-    printf '{"loaded":%s,"enabled":%s,"active":%s,"max":%s,"min":%s,"autostart":%s,"percent":%s,"nits":%s,"maxLimit":%s,"bar":%s}\n' \
-      $is_loaded "$ENABLED" $active "$MAX" "$MIN" "$(autostart_state)" $pct $nits $MAX_LIMIT "$barstate"
+    printf '{"loaded":%s,"enabled":%s,"active":%s,"max":%s,"min":%s,"autostart":%s,"percent":%s,"nits":%s,"maxLimit":%s,"bar":%s,"batteryLimit":%s,"onBattery":%s}\n' \
+      $is_loaded "$ENABLED" $active "$MAX" "$MIN" "$(autostart_state)" $pct $nits $MAX_LIMIT "$barstate" "$BATTERY_LIMIT" "$onbat"
   else
     (( is_loaded )) || echo "kernel module: not loaded"
     echo "extended range: $( (( ENABLED )) && echo on || echo off)$( (( ENABLED && !active )) && echo ' (saved, not applied)')"
     echo "range: $( (( MIN )) && echo "$MIN nits" || echo "off") .. $MAX nits"
     (( active && nits )) && echo "now: $pct% = about $nits nits requested"
+    echo "standard range on battery: $( (( BATTERY_LIMIT )) && echo on || echo off)$( (( BATTERY_LIMIT && onbat )) && echo ' (on battery now)')"
     echo "top-bar icon: $( (( barstate )) && echo on || echo off)"
     echo "apply at login: $( (( $(autostart_state) )) && echo on || echo off)"
   fi
@@ -148,6 +177,29 @@ case ${1:-status} in
       off) systemctl --user disable $unit ;;
       *) die "autostart on|off" ;;
     esac ;;
+  battery)
+    case ${2:-} in
+      on) BATTERY_LIMIT=1 ;;
+      off) BATTERY_LIMIT=0 ;;
+      *) die "battery on|off" ;;
+    esac
+    save
+    if (( ENABLED )); then apply; fi
+    # The watcher only needs to run while the option is on.
+    if (( BATTERY_LIMIT )); then systemctl --user enable --now $watch_unit 2>/dev/null || true
+    else systemctl --user disable --now $watch_unit 2>/dev/null || true; fi ;;
+  refresh-power)
+    # Re-applies on a power change, but only if the range is active now, so a
+    # plug or unplug never turns it on by itself.
+    if loaded && [[ $(cat $params/range_on) == 1 ]]; then apply; fi ;;
+  watch)
+    last=""
+    while :; do
+      cur=$(on_battery)
+      [[ -n $last && $cur != "$last" ]] && "$0" refresh-power || true
+      last=$cur
+      sleep 3
+    done ;;
   bar) bar "${2:-}" ;;
-  *) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+  *) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

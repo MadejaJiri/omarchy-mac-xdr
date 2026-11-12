@@ -16,6 +16,8 @@ class Backend : public QObject {
     Q_PROPERTY(bool enabled READ enabled NOTIFY changed)
     Q_PROPERTY(bool autostart READ autostart NOTIFY changed)
     Q_PROPERTY(bool barIcon READ barIcon NOTIFY changed)
+    Q_PROPERTY(bool batteryLimit READ batteryLimit NOTIFY changed)
+    Q_PROPERTY(bool onBattery READ onBattery NOTIFY changed)
     Q_PROPERTY(int maxNits READ maxNits NOTIFY changed)
     Q_PROPERTY(int minNits READ minNits NOTIFY changed)
     Q_PROPERTY(int maxLimit READ maxLimit NOTIFY changed)
@@ -31,6 +33,8 @@ public:
     bool enabled() const { return m_enabled; }
     bool autostart() const { return m_autostart; }
     bool barIcon() const { return m_bar; }
+    bool batteryLimit() const { return m_batteryLimit; }
+    bool onBattery() const { return m_onBattery; }
     int maxNits() const { return m_max; }
     int minNits() const { return m_min; }
     int maxLimit() const { return m_maxLimit; }
@@ -44,6 +48,7 @@ public:
     Q_INVOKABLE void setMinNits(int nits);
     Q_INVOKABLE void setAutostart(bool on);
     Q_INVOKABLE void setBarIcon(bool on);
+    Q_INVOKABLE void setBatteryLimit(bool on);
     Q_INVOKABLE void setPercent(int percent);
 
     // Used by tests and by the offscreen screenshot harness.
@@ -63,7 +68,8 @@ private:
     QTimer m_poll;
     bool m_statusRunning = false;
 
-    bool m_ready = false, m_loaded = false, m_enabled = false, m_autostart = false, m_bar = false;
+    bool m_ready = false, m_loaded = false, m_enabled = false, m_autostart = false, m_bar = false,
+         m_batteryLimit = false, m_onBattery = false;
     int m_max = 1000, m_min = 0, m_maxLimit = 1600, m_percent = 0, m_nits = 0;
     QString m_error;
 };

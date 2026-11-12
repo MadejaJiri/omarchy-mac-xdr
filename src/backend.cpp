@@ -69,6 +69,8 @@ void Backend::applyStatus(const QByteArray &json) {
     m_enabled = flag("enabled");
     m_autostart = flag("autostart");
     m_bar = flag("bar");
+    m_batteryLimit = flag("batteryLimit");
+    m_onBattery = flag("onBattery");
     m_max = qBound(500, o.value("max").toInt(1000), 1600);
     m_min = qBound(0, o.value("min").toInt(0), 50);
     m_maxLimit = qBound(500, o.value("maxLimit").toInt(1600), 1600);
@@ -104,6 +106,7 @@ void Backend::setMaxNits(int nits) { run(m_cli, {"max", QString::number(nits)});
 void Backend::setMinNits(int nits) { run(m_cli, {"min", QString::number(nits)}); }
 void Backend::setAutostart(bool on) { run(m_cli, {"autostart", on ? "on" : "off"}); }
 void Backend::setBarIcon(bool on) { run(m_cli, {"bar", on ? "on" : "off"}); }
+void Backend::setBatteryLimit(bool on) { run(m_cli, {"battery", on ? "on" : "off"}); }
 
 // Lets the user try the range from here; the same call the brightness keys make.
 void Backend::setPercent(int percent) {

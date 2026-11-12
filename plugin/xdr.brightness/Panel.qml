@@ -21,6 +21,8 @@ Panel {
   property bool xdrLoaded: false
   property bool xdrOn: false
   property bool xdrActive: false
+  property bool batteryLimit: false
+  property bool onBattery: false
   property bool autostart: false
   property int maxNits: 1000
   property int minNits: 0
@@ -59,6 +61,8 @@ Panel {
     root.xdrLoaded = s.loaded === 1 || s.loaded === true
     root.xdrOn = s.enabled === 1 || s.enabled === true
     root.xdrActive = s.active === 1 || s.active === true
+    root.batteryLimit = s.batteryLimit === 1 || s.batteryLimit === true
+    root.onBattery = s.onBattery === 1 || s.onBattery === true
     root.autostart = s.autostart === 1 || s.autostart === true
     root.maxNits = Math.max(500, Math.min(1600, Number(s.max) || 1000))
     root.minNits = Math.max(0, Math.min(50, Number(s.min) || 0))
@@ -71,6 +75,7 @@ Panel {
     if (!root.known) return "omarchy-xdr not installed"
     if (!root.xdrLoaded) return "Kernel module not loaded"
     if (!root.xdrOn) return "Off: standard range"
+    if (root.batteryLimit && root.onBattery) return "On battery: standard maximum"
     if (root.nits > 0) return root.percent + "% is about " + root.nits + " nits"
     return (root.minNits === 0 ? "off" : root.minNits) + " to " + root.maxNits + " nits"
   }
@@ -286,6 +291,36 @@ Panel {
         }
 
         PanelSeparator { foreground: root.bar.foreground }
+
+        // ---------- Standard maximum on battery ----------
+        Item {
+          width: parent.width
+          implicitHeight: Math.max(batteryLabel.implicitHeight, batterySwitch.implicitHeight)
+
+          Text {
+            id: batteryLabel
+            textFormat: Text.PlainText
+            text: "Standard maximum on battery"
+            color: root.bar.foreground
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.body
+            anchors.left: parent.left
+            anchors.right: batterySwitch.left
+            anchors.rightMargin: Style.space(10)
+            anchors.verticalCenter: parent.verticalCenter
+            elide: Text.ElideRight
+          }
+
+          ToggleSwitch {
+            id: batterySwitch
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            checked: root.batteryLimit
+            interactive: root.xdrLoaded
+            foreground: root.bar.foreground
+            onToggled: root.run(["battery", root.batteryLimit ? "off" : "on"])
+          }
+        }
 
         // ---------- Apply at login ----------
         Item {

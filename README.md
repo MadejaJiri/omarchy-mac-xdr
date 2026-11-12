@@ -24,11 +24,13 @@ kernel module that is built for the running kernel and loaded at every boot
 The app: the switch at the top turns the extended range on or off.
 **Maximum** is what 100% brightness means (500 to 1600 nits). **Minimum** is
 the bottom of the scale: at *Off* the lowest brightness step switches the
-backlight off, as on macOS; otherwise it is that many nits. **Show icon in the
+backlight off, as on macOS; otherwise it is that many nits. **Standard maximum on
+battery** caps brightness at the normal maximum while unplugged (the minimum
+still applies) and lifts the cap when you plug in. **Show icon in the
 top bar** adds or removes the bar widget, and **Apply at login** restores your
 choice after a reboot. The brightness keys and slider keep working as before,
 now across the range you chose. The same from a terminal:
-`omarchy-xdr enable | disable | max 1200 | min 0 | bar on | autostart on | status`.
+`omarchy-xdr enable | disable | max 1200 | min 0 | battery on | bar on | autostart on | status`.
 
 Apple holds this panel to 1000 nits sustained full-screen and uses 1600 only
 for HDR highlights, and under Linux the firmware does not get a real panel

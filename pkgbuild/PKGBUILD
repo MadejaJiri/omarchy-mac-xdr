@@ -28,6 +28,7 @@ package() {
   install -Dm755 system/omarchy-xdr-load "$pkgdir/usr/lib/xdr-screen-control/load"
   install -Dm644 system/omarchy-xdr-probe.service "$pkgdir/usr/lib/systemd/system/omarchy-xdr-probe.service"
   install -Dm644 system/omarchy-xdr.service "$pkgdir/usr/lib/systemd/user/omarchy-xdr.service"
+  install -Dm644 system/omarchy-xdr-watch.service "$pkgdir/usr/lib/systemd/user/omarchy-xdr-watch.service"
 
   for f in plugin/xdr.brightness/*; do
     install -Dm644 "$f" "$pkgdir/usr/share/xdr-screen-control/plugin/xdr.brightness/$(basename "$f")"

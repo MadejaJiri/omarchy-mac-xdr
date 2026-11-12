@@ -107,6 +107,7 @@ ApplicationWindow {
                         text: !backend.ready ? qsTr("Unavailable")
                             : !backend.moduleLoaded ? qsTr("Kernel module not loaded")
                             : !backend.enabled ? qsTr("Off: standard brightness range")
+                            : backend.batteryLimit && backend.onBattery ? qsTr("On battery: standard maximum")
                             : backend.nits > 0 ? qsTr("%1% is about %2 nits").arg(backend.percent).arg(backend.nits)
                             : qsTr("Extended range on")
                     }
@@ -194,6 +195,12 @@ ApplicationWindow {
                 detail: qsTr("Quick access to these settings from the bar.")
                 checked: backend.barIcon
                 onToggled: function(on) { backend.setBarIcon(on) }
+            }
+            SwitchRow {
+                title: qsTr("Standard maximum on battery")
+                detail: qsTr("Cap brightness at the normal maximum while unplugged, to save power. The minimum still applies.")
+                checked: backend.batteryLimit
+                onToggled: function(on) { backend.setBatteryLimit(on) }
             }
             SwitchRow {
                 title: qsTr("Apply at login")
