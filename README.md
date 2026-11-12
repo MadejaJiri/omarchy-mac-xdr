@@ -29,15 +29,33 @@ uncalibrated (see Status). A true HDR output pipeline is not part of this; see
 
 ## Install
 
+You need a MacBook Pro with the Omarchy Mac install (kernel `linux-aurora`, with
+its headers `linux-aurora-headers`), a way to run `sudo`, and `git`. Run this in
+a normal terminal window:
+
 ```bash
+git clone https://github.com/MadejaJiri/omarchy-mac-xdr.git
+cd omarchy-mac-xdr
 bin/install
 ```
 
-Builds an Arch package and installs it with pacman (asks for sudo). You get
-**XDR Screen Control** in the app launcher, the `omarchy-xdr` command, and a
-kernel module that is built for the running kernel and loaded at every boot
-(`omarchy-xdr-probe.service`). It needs `linux-aurora-headers`, `pahole`, `gcc`
-and `make`. `sudo pacman -R xdr-screen-control` removes it.
+It builds an Arch package and installs it with pacman, which asks for your
+password and installs missing build tools (`gcc`, `make`, `pahole`,
+`brightnessctl`, Qt) itself. You get **XDR Screen Control** in the app
+launcher, the `omarchy-xdr` command, and a kernel module that is built for the
+running kernel and loaded at every boot (`omarchy-xdr-probe.service`). The
+first install takes a minute while the module compiles. No reboot is needed,
+and `sudo pacman -R xdr-screen-control` removes everything.
+
+**First run:** open *XDR Screen Control* from the launcher (Super + Space),
+switch it on, and choose a maximum. Nothing changes until you do, so the
+install itself is safe to try. Turn on *Apply at login* to keep your choice
+after a reboot.
+
+**If it says the kernel module is not loaded:** the module only supports
+display firmware 13.5 and needs the headers for the running kernel. The reason
+is in `journalctl -u omarchy-xdr-probe`. After a kernel update the module is
+rebuilt automatically at the next boot.
 
 ## Using it
 
